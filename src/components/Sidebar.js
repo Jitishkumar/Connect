@@ -36,6 +36,29 @@ const Sidebar = ({ isVisible, onClose }) => {
         <Ionicons name="settings-outline" size={24} color="#ff00ff" />
         <Text style={styles.menuText}>Settings</Text>
       </TouchableOpacity>
+
+      {/* New Options */}
+      <TouchableOpacity 
+        style={styles.menuItem}
+        onPress={() => {
+          onClose();
+          navigation.navigate('AddAccount');
+        }}
+      >
+        <Ionicons name="person-add" size={24} color="#ff00ff" />
+        <Text style={styles.menuText}>Add Account</Text>
+      </TouchableOpacity>
+
+      <TouchableOpacity 
+        style={styles.menuItem}
+        onPress={() => {
+          onClose();
+          console.log('Logout pressed - will implement with backend');
+        }}
+      >
+        <Ionicons name="log-out" size={24} color="#ff00ff" />
+        <Text style={styles.menuText}>Logout</Text>
+      </TouchableOpacity>
     </Animated.View>
   );
 };

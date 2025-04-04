@@ -10,6 +10,8 @@ import MessagesScreen from './src/screens/MessagesScreen';
 import NotificationsScreen from './src/screens/NotificationsScreen';
 import ConfessionScreen from './src/screens/ConfessionScreen';
 import SearchScreen from './src/screens/SearchScreen';
+import AddAccountScreen from './src/screens/AddAccountScreen';
+import LoginScreen from './src/screens/LoginScreen';
 
 const Tab = createBottomTabNavigator();
 const Stack = createStackNavigator();
@@ -39,9 +41,8 @@ function HomeTabs() {
     >
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Messages" component={MessagesScreen} />
-    
       <Tab.Screen name="Notifications" component={NotificationsScreen}/>
-        <Tab.Screen name="Profile" component={ProfileScreen}  />
+      <Tab.Screen name="Profile" component={ProfileScreen} />
     </Tab.Navigator>
   );
 }
@@ -53,6 +54,8 @@ export default function App() {
         <Stack.Screen name="MainTabs" component={HomeTabs} />
         <Stack.Screen name="Confession" component={ConfessionScreen} />
         <Stack.Screen name="Search" component={SearchScreen} />
+        <Stack.Screen name="AddAccount" component={AddAccountScreen} />
+        <Stack.Screen name="Login" component={LoginScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
