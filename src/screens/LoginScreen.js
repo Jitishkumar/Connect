@@ -1,72 +1,41 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, TextInput, Alert } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import { useNavigation } from '@react-navigation/native';
+import React, { useState } from 'react';
+import { View, TextInput, TouchableOpacity, Text, StyleSheet, Alert } from 'react-native';
 import { supabase } from '../config/supabase';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
-const LoginScreen = ({ route }) => {
-  const navigation = useNavigation();
-  const [email, setEmail] = useState(route?.params?.prefilledEmail || '');
+const LoginScreen = ({ navigation }) => {
+  const [identifier, setIdentifier] = useState(''); // This can be email or username
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
-  const [accounts, setAccounts] = useState([]);
-
-  useEffect(() => {
-    loadSavedAccounts();
-  }, []);
-
-  useEffect(() => {
-    if (route?.params?.prefilledEmail) {
-      setEmail(route.params.prefilledEmail);
-    }
-  }, [route?.params?.prefilledEmail]);
-
-  const loadSavedAccounts = async () => {
-    try {
-      const savedAccounts = await AsyncStorage.getItem('savedAccounts');
-      if (savedAccounts) {
-        setAccounts(JSON.parse(savedAccounts));
-      }
-    } catch (error) {
-      console.error('Error loading accounts:', error);
-    }
-  };
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      Alert.alert('Error', 'Please fill in all fields');
-      return;
-    }
-
-    setLoading(true);
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password: password.trim(),
-      });
+      setLoading(true);
+      
+      const { data: email, error: userError } = await supabase
+        .rpc('get_user_by_email_or_username', { 
+          identifier: identifier.toLowerCase()
+        });
 
-      if (error) {
-        Alert.alert('Error', error.message);
-      } else if (data?.session) {
-        // Save account info, but first remove any duplicate entries
-        const newAccount = { email: email.trim(), userId: data.session.user.id };
-        const existingAccounts = await AsyncStorage.getItem('savedAccounts');
-        let updatedAccounts = [];
-        
-        if (existingAccounts) {
-          const parsedAccounts = JSON.parse(existingAccounts);
-          // Remove any existing entries with the same email
-          updatedAccounts = parsedAccounts.filter(account => account.email !== email.trim());
-        }
-        
-        // Add the new account
-        updatedAccounts.push(newAccount);
-        await AsyncStorage.setItem('savedAccounts', JSON.stringify(updatedAccounts));
-        navigation.replace('MainApp');
+      if (userError) throw userError;
+  
+      if (!email) {
+        throw new Error('User not found');
       }
+  
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: email,
+        password: password
+      });
+  
+      if (signInError) throw signInError;
+  
+      // Navigate to MainApp instead of ProfileScreen
+      navigation.replace('MainApp');
     } catch (error) {
-      Alert.alert('Error', 'An unexpected error occurred');
+      Alert.alert(
+        'Login Error',
+        error.message || 'Failed to login. Please check your credentials.'
+      );
     } finally {
       setLoading(false);
     }
@@ -74,109 +43,76 @@ const LoginScreen = ({ route }) => {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Login</Text>
-      </View>
-
-      <View style={styles.content}>
-        <TextInput 
-          style={styles.input}
-          placeholder="Email"
-          placeholderTextColor="#e3a6d0"
-          value={email}
-          onChangeText={setEmail}
-          autoCapitalize="none"
-          keyboardType="email-address"
-        />
-        <TextInput 
-          style={styles.input}
-          placeholder="Password"
-          placeholderTextColor="#e3a6d0"
-          value={password}
-          onChangeText={setPassword}
-          secureTextEntry
-          autoCapitalize="none"
-        />
-        <TouchableOpacity 
-          style={[styles.loginButton, loading && styles.loginButtonDisabled]}
-          onPress={handleLogin}
-          disabled={loading}
-        >
-          <Text style={styles.loginButtonText}>
-            {loading ? 'Logging in...' : 'Login'}
-          </Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={styles.signupButton}
-          onPress={() => navigation.navigate('Signup')}
-        >
-          <Text style={styles.signupButtonText}>
-            Don't have an account? Sign up
-          </Text>
-        </TouchableOpacity>
-      </View>
+      <TextInput
+        style={styles.input}
+        placeholder="Email or Username"
+        placeholderTextColor="#666"
+        value={identifier}
+        onChangeText={setIdentifier}
+        autoCapitalize="none"
+      />
+      <TextInput
+        style={styles.input}
+        placeholder="Password"
+        placeholderTextColor="#666"
+        value={password}
+        onChangeText={setPassword}
+        secureTextEntry
+      />
+      <TouchableOpacity 
+        style={styles.button} 
+        onPress={handleLogin}
+        disabled={loading}
+      >
+        <Text style={styles.buttonText}>
+          {loading ? 'Logging in...' : 'Login'}
+        </Text>
+      </TouchableOpacity>
+      
+      <TouchableOpacity 
+        style={styles.signupButton}
+        onPress={() => navigation.navigate('Signup')}
+      >
+        <Text style={styles.signupText}>
+          Don't have an account? Sign up
+        </Text>
+      </TouchableOpacity>
     </View>
   );
 };
 
+// Add these new styles
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingTop: 50,
-    paddingHorizontal: 15,
-    paddingBottom: 15,
-  },
-  backButton: {
-    padding: 5,
-  },
-  headerTitle: {
-    color: '#ff00ff',
-    fontSize: 20,
-    fontWeight: 'bold',
-    marginLeft: 15,
-  },
-  content: {
-    flex: 1,
     padding: 20,
     justifyContent: 'center',
   },
   input: {
-    backgroundColor: '#4d0026',
+    backgroundColor: '#1a1a1a',
     borderRadius: 10,
     padding: 15,
     marginBottom: 15,
-    color: '#ff00ff',
-    borderWidth: 1,
-    borderColor: '#ff00ff',
+    color: 'white',
   },
-  loginButton: {
+  button: {
     backgroundColor: '#ff00ff',
     padding: 15,
     borderRadius: 10,
     alignItems: 'center',
-    marginTop: 20,
   },
-  loginButtonDisabled: {
-    opacity: 0.7,
-  },
-  loginButtonText: {
+  buttonText: {
     color: 'white',
-    fontSize: 16,
     fontWeight: 'bold',
   },
   signupButton: {
-    marginTop: 15,
+    marginTop: 20,
     alignItems: 'center',
   },
-  signupButtonText: {
+  signupText: {
     color: '#ff00ff',
-    fontSize: 14,
+    fontSize: 16,
   },
 });
 

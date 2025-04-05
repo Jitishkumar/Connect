@@ -39,7 +39,13 @@ const Sidebar = ({ isVisible, onClose }) => {
             <Ionicons name="close" size={24} color="#ff00ff" />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity 
+            style={styles.menuItem} 
+            onPress={() => {
+              onClose();
+              navigation.navigate('Confession');
+            }}
+          >
             <Ionicons name="heart" size={24} color="#ff00ff" />
             <Text style={styles.menuText}>Confessions</Text>
           </TouchableOpacity>

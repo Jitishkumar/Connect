@@ -47,22 +47,41 @@ const ProfileScreen = () => {
   );
 
   const loadUserProfile = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data, error } = await supabase
-          .from('profiles')
-          .select('*')
-          .eq('id', user.id)
-          .single();
+    let retryCount = 0;
+    const maxRetries = 3;
 
-        if (data) {
-          setUserProfile(data);
-          setShowFullBio(false); // Reset bio expansion state
+    while (retryCount < maxRetries) {
+      try {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          const { data, error } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', user.id)
+            .single();
+
+          if (error) throw error;
+
+          if (data) {
+            console.log('User rank:', data.rank); // Debug log
+            setUserProfile(data);
+            setShowFullBio(false);
+            return;
+          }
         }
+      } catch (error) {
+        console.error(`Attempt ${retryCount + 1} failed:`, error);
+        if (retryCount === maxRetries - 1) {
+          Alert.alert(
+            'Connection Error',
+            'Unable to load profile. Please check your internet connection and try again.',
+            [{ text: 'OK' }]
+          );
+        }
+        retryCount++;
+        // Wait for 1 second before retrying
+        await new Promise(resolve => setTimeout(resolve, 1000));
       }
-    } catch (error) {
-      console.error('Error loading profile:', error);
     }
   };
 
@@ -102,7 +121,16 @@ const ProfileScreen = () => {
             source={{ uri: 'https://via.placeholder.com/150' }}
           />
           <Text style={styles.name}>{userProfile?.full_name || 'No name set'}</Text>
+          // After username display
           <Text style={styles.username}>@{userProfile?.username || 'username'}</Text>
+          <View style={styles.rankBadge}>
+            <Ionicons name="trophy-outline" size={16} color="#FFD700" />
+            <Text style={styles.rankNumber}>
+              {userProfile?.rank 
+                ? `Rank #${userProfile.rank} ${userProfile.rank === 1 ? '(First Member!)' : ''}`
+                : 'Rank not assigned'}
+            </Text>
+          </View>
           {renderBio()}
           
           <TouchableOpacity 
@@ -160,6 +188,18 @@ const ProfileScreen = () => {
             <View style={styles.detailContent}>
               <Text style={styles.detailTitle}>Work Experience</Text>
               <Text style={styles.detailText}>Google UX/UI Designer</Text>
+            </View>
+          </View>
+
+          <View style={styles.detailItem}>
+            <Ionicons name="trophy-outline" size={24} color="#FFD700" />
+            <View style={styles.detailContent}>
+              <Text style={styles.detailTitle}>Member Rank</Text>
+              <Text style={styles.detailText}>
+                {userProfile?.rank 
+                  ? `You are member #${userProfile.rank} on Flexx`
+                  : 'Rank not assigned yet'}
+              </Text>
             </View>
           </View>
         </View>
@@ -321,6 +361,21 @@ const styles = StyleSheet.create({
   moreText: {
     color: '#ff00ff',
     fontWeight: '600',
+  },
+  rankBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 15,
+    marginTop: 5,
+  },
+  rankNumber: {
+    color: '#FFD700',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginLeft: 5,
   },
 });
 
