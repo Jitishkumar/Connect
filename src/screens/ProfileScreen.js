@@ -1,15 +1,70 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Sidebar from '../components/Sidebar';
 import AccountSwitcher from '../components/AccountSwitcher';
 import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../config/supabase';
 
+// Add useEffect to fetch profile data
 const ProfileScreen = () => {
   const [isSidebarVisible, setSidebarVisible] = useState(false);
   const [isAccountSwitcherVisible, setAccountSwitcherVisible] = useState(false);
+  const [userProfile, setUserProfile] = useState(null);
+  const [showFullBio, setShowFullBio] = useState(false);
   const navigation = useNavigation();
+
+  // Add this function to handle bio display
+  const renderBio = () => {
+    if (!userProfile?.bio) return null;
+    
+    const shouldTruncate = userProfile.bio.length > 50 && !showFullBio;
+    const displayBio = shouldTruncate 
+      ? userProfile.bio.substring(0, 50) + '...' 
+      : userProfile.bio;
+
+    return (
+      <View style={styles.bioContainer}>
+        <Text style={styles.bioText}>
+          {displayBio}
+          {shouldTruncate && (
+            <Text 
+              style={styles.moreText}
+              onPress={() => setShowFullBio(true)}
+            > more</Text>
+          )}
+        </Text>
+      </View>
+    );
+  };
+
+  // Replace the existing useEffect with useFocusEffect
+  useFocusEffect(
+    React.useCallback(() => {
+      loadUserProfile();
+    }, [])
+  );
+
+  const loadUserProfile = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+
+        if (data) {
+          setUserProfile(data);
+          setShowFullBio(false); // Reset bio expansion state
+        }
+      }
+    } catch (error) {
+      console.error('Error loading profile:', error);
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -31,9 +86,10 @@ const ProfileScreen = () => {
         isVisible={isAccountSwitcherVisible}
         onClose={() => setAccountSwitcherVisible(false)}
       />
-
-      {/* Cover photo section */}
+//cover photo section
+      {}
       <ScrollView>
+        {/* Update the profile section to use userProfile data */}
         <View style={styles.profileSection}>
           <View style={styles.coverPhotoContainer}>
             <Image
@@ -45,11 +101,10 @@ const ProfileScreen = () => {
             style={styles.profileImage}
             source={{ uri: 'https://via.placeholder.com/150' }}
           />
-          <Text style={styles.name}>Dave C. Brown</Text>
-          <Text style={styles.username}>@dave_brown</Text>
-          <Text style={styles.bio}>Google Certified Ux/Ui Designer</Text>
+          <Text style={styles.name}>{userProfile?.full_name || 'No name set'}</Text>
+          <Text style={styles.username}>@{userProfile?.username || 'username'}</Text>
+          {renderBio()}
           
-          // In the ProfileScreen component, update the edit button:
           <TouchableOpacity 
             style={styles.editButton}
             onPress={() => navigation.navigate('EditProfile')}
@@ -82,7 +137,7 @@ const ProfileScreen = () => {
             <Text style={styles.tabButtonText}>Post</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.tabButton}>
-            <Text style={styles.tabButtonText}>Details</Text>
+            <Text style={styles.tabButtonText}>Shorts</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.tabButton, styles.activeTab]}>
             <Text style={[styles.tabButtonText, styles.activeTabText]}>Details</Text>
@@ -95,7 +150,7 @@ const ProfileScreen = () => {
             <View style={styles.detailContent}>
               <Text style={styles.detailTitle}>About me</Text>
               <Text style={styles.detailText}>
-                Lorem ipsum dolor sit amet, consectetur elit. Pellentesque leo lectus iaculis vel velit.
+                {userProfile?.bio || 'No bio added yet'}
               </Text>
             </View>
           </View>
@@ -109,17 +164,10 @@ const ProfileScreen = () => {
           </View>
         </View>
       </ScrollView>
-
-      
-       
-       
-     
-      
     </View>
   );
 };
 
-// Add these new styles
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -258,6 +306,21 @@ const styles = StyleSheet.create({
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
+  },
+  bioContainer: {
+    marginTop: 10,
+    paddingHorizontal: 20,
+    width: '100%',
+  },
+  bioText: {
+    color: '#faf7f8',
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  moreText: {
+    color: '#ff00ff',
+    fontWeight: '600',
   },
 });
 
