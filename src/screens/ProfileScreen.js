@@ -1,14 +1,254 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Sidebar from '../components/Sidebar';
-import AccountSwitcher from '../components/AccountSwitcher';
-import { useNavigation } from '@react-navigation/native';
-import { useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../config/supabase';
+import { useAccounts } from '../context/AccountContext';
 
-// Add useEffect to fetch profile data
+// Define AccountSwitcherModal component outside of the main component
+const AccountSwitcherModal = ({ visible, onClose, loadUserProfile }) => {
+  const { accounts, addAccount } = useAccounts();
+  const navigation = useNavigation();
+  const [currentUser, setCurrentUser] = useState(null);
+  const [refreshedAccounts, setRefreshedAccounts] = useState([]);
+
+  // Get current user and refresh accounts when modal opens
+  useEffect(() => {
+    if (visible) {
+      getCurrentUser();
+      refreshAccountData();
+    }
+  }, [visible]);
+
+  const getCurrentUser = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setCurrentUser(user.id);
+      }
+    } catch (error) {
+      console.error("Error getting current user:", error);
+    }
+  };
+
+  // Fetch the latest profile data for all accounts
+  const refreshAccountData = async () => {
+    try {
+      const uniqueIds = {};
+      
+      // Get the most recent account for each ID
+      accounts.forEach(account => {
+        uniqueIds[account.id] = account;
+      });
+      
+      // Convert to array
+      const uniqueAccounts = Object.values(uniqueIds);
+      
+      // Refresh each account's data
+      const refreshed = await Promise.all(
+        uniqueAccounts.map(async (account) => {
+          try {
+            const { data, error } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', account.id)
+              .single();
+  
+            if (error) throw error;
+  
+            if (data) {
+              // Update the account in context
+              const updatedAccount = {
+                ...account,
+                username: data.username,
+                avatar_url: data.avatar_url
+              };
+              
+              // Update in context
+              addAccount(updatedAccount);
+              
+              return updatedAccount;
+            }
+            return account;
+          } catch (e) {
+            console.error("Error refreshing account:", e);
+            return account;
+          }
+        })
+      );
+      
+      setRefreshedAccounts(refreshed);
+    } catch (error) {
+      console.error("Error refreshing accounts:", error);
+    }
+  };
+
+  // Use refreshed accounts if available, otherwise use the filtered accounts from context
+  const displayAccounts = refreshedAccounts.length > 0 ? refreshedAccounts : 
+    Object.values(accounts.reduce((acc, account) => {
+      acc[account.id] = account;
+      return acc;
+    }, {}));
+
+  return (
+    <Modal
+      visible={visible}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalContainer}>
+        <View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>Switch Account</Text>
+          
+          {displayAccounts.map((account, index) => (
+            <TouchableOpacity 
+              key={index}
+              style={[
+                styles.accountItem, 
+                currentUser === account.id && styles.currentAccountItem
+              ]}
+              onPress={async () => {
+                try {
+                  // Only switch if it's not the current account
+                  if (currentUser !== account.id) {
+                    onClose(); // Close modal first
+                    
+                    // Try to sign in with the stored credentials
+                    const { data, error } = await supabase.auth.signInWithPassword({
+                      email: account.email,
+                      password: account.stored_password || '' // This will likely fail without password
+                    });
+                    
+                    if (error) {
+                      // If direct sign-in fails, try session refresh if available
+                      if (account.session_token) {
+                        const { data: sessionData, error: sessionError } = await supabase.auth.refreshSession({
+                          refresh_token: account.session_token
+                        });
+                        
+                        if (sessionError) {
+                          // If session refresh fails, navigate to login
+                          Alert.alert(
+                            "Session Expired", 
+                            "Please log in again to access this account.",
+                            [
+                              { 
+                                text: "OK", 
+                                onPress: () => navigation.navigate('Login', { email: account.email })
+                              }
+                            ]
+                          );
+                          return;
+                        }
+                        
+                        // If session refresh worked, force reload the profile
+                        await loadUserProfile();
+                        
+                        // Navigate to Main to refresh the UI
+                        navigation.reset({
+                          index: 0,
+                          routes: [{ name: 'Main' }],
+                        });
+                        return;
+                      } else {
+                        // No session token, navigate to login
+                        Alert.alert(
+                          "Login Required", 
+                          "Please log in to access this account.",
+                          [
+                            { 
+                              text: "OK", 
+                              onPress: () => navigation.navigate('Login', { email: account.email })
+                            }
+                          ]
+                        );
+                        return;
+                      }
+                    }
+                    
+                    // If direct sign-in worked, force reload the profile
+                    await loadUserProfile();
+                    
+                    // Navigate to Main to refresh the UI
+                    // In the AccountSwitcherModal component, update both navigation reset calls
+                    
+                    // First instance around line 126
+                    // Change this:
+                    navigation.reset({
+                      index: 0,
+                      routes: [{ name: 'Main' }],
+                    });
+                    
+                    // To this:
+                    navigation.reset({
+                      index: 0,
+                      routes: [{ name: 'Profile' }],
+                    });
+                    
+                    // Second instance around line 156
+                    // Change this:
+                    navigation.reset({
+                      index: 0,
+                      routes: [{ name: 'Main' }],
+                    });
+                    
+                    // To this:
+                    navigation.reset({
+                      index: 0,
+                      routes: [{ name: 'Profile' }],
+                    });
+                  } else {
+                    // Just close the modal if it's the current account
+                    onClose();
+                  }
+                } catch (error) {
+                  console.error("Error switching account:", error);
+                  Alert.alert("Error", "Failed to switch account. Please try logging in manually.");
+                  onClose();
+                }
+              }}
+            >
+              <Image 
+                source={{ uri: account.avatar_url || 'https://via.placeholder.com/150' }}
+                style={styles.accountAvatar}
+              />
+              <Text style={styles.accountUsername}>{account.username}</Text>
+              {currentUser === account.id && (
+                <View style={styles.currentAccountBadge}>
+                  <Ionicons name="checkmark-circle" size={20} color="#ff00ff" />
+                </View>
+              )}
+            </TouchableOpacity>
+          ))}
+
+          <TouchableOpacity 
+            style={styles.addAccountButton}
+            onPress={() => {
+              onClose();
+              navigation.navigate('Login');
+            }}
+          >
+            <Ionicons name="add-circle-outline" size={24} color="#ff00ff" />
+            <Text style={styles.addAccountText}>Add Account</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.closeButton}
+            onPress={onClose}
+          >
+            <Text style={styles.closeText}>Close</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+};
+
+// Main ProfileScreen component
 const ProfileScreen = () => {
+  const { accounts, addAccount } = useAccounts();
   const [isSidebarVisible, setSidebarVisible] = useState(false);
   const [isAccountSwitcherVisible, setAccountSwitcherVisible] = useState(false);
   const [userProfile, setUserProfile] = useState(null);
@@ -46,26 +286,56 @@ const ProfileScreen = () => {
     }, [])
   );
 
+  // In the loadUserProfile function, update the account information instead of just adding it
   const loadUserProfile = async () => {
     let retryCount = 0;
     const maxRetries = 3;
-
+  
     while (retryCount < maxRetries) {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { user, session } } = await supabase.auth.getUser();
         if (user) {
           const { data, error } = await supabase
             .from('profiles')
             .select('*')
             .eq('id', user.id)
             .single();
-
+  
           if (error) throw error;
-
+  
           if (data) {
-            console.log('User rank:', data.rank); // Debug log
+            console.log('User rank:', data.rank);
             setUserProfile(data);
             setShowFullBio(false);
+            
+            // Get the current session to store the refresh token
+            const { data: sessionData } = await supabase.auth.getSession();
+            const refreshToken = sessionData?.session?.refresh_token;
+            
+            // Update or add the account with the latest information
+            const accountExists = accounts.findIndex(acc => acc.id === data.id);
+            if (accountExists >= 0) {
+              // Update existing account
+              const updatedAccounts = [...accounts];
+              updatedAccounts[accountExists] = {
+                id: data.id,
+                username: data.username,
+                avatar_url: data.avatar_url,
+                email: user.email,
+                session_token: refreshToken // Store refresh token
+              };
+              // Use the context's update function to update accounts
+              addAccount(updatedAccounts[accountExists]);
+            } else {
+              // Add new account
+              addAccount({
+                id: data.id,
+                username: data.username,
+                avatar_url: data.avatar_url,
+                email: user.email,
+                session_token: refreshToken // Store refresh token
+              });
+            }
             return;
           }
         }
@@ -97,18 +367,18 @@ const ProfileScreen = () => {
           <Ionicons name="menu" size={24} color="#ff00ff" />
         </TouchableOpacity>
         <TouchableOpacity onPress={() => setAccountSwitcherVisible(true)}>
-          <Ionicons name="settings-outline" size={24} color="white" />
+          <Ionicons name="add-circle-outline" size={24} color="#ff00ff" />
         </TouchableOpacity>
       </View>
 
-      <AccountSwitcher 
-        isVisible={isAccountSwitcherVisible}
+      <AccountSwitcherModal 
+        visible={isAccountSwitcherVisible}
         onClose={() => setAccountSwitcherVisible(false)}
+        loadUserProfile={loadUserProfile}
       />
-//cover photo section
-      {}
+      
       <ScrollView>
-        {/* Update the profile section to use userProfile data */}
+        {/* Profile section */}
         <View style={styles.profileSection}>
           <View style={styles.coverPhotoContainer}>
             <Image
@@ -121,7 +391,6 @@ const ProfileScreen = () => {
             source={{ uri: 'https://via.placeholder.com/150' }}
           />
           <Text style={styles.name}>{userProfile?.full_name || 'No name set'}</Text>
-          // After username display
           <Text style={styles.username}>@{userProfile?.username || 'username'}</Text>
           <View style={styles.rankBadge}>
             <Ionicons name="trophy-outline" size={16} color="#FFD700" />
@@ -160,6 +429,7 @@ const ProfileScreen = () => {
           </View>
         </View>
 
+        {/* Rest of the profile content */}
         <View style={styles.tabsContainer}>
           <TouchableOpacity style={styles.tabButton}>
             <Text style={styles.tabButtonText}>Post</Text>
@@ -208,7 +478,9 @@ const ProfileScreen = () => {
   );
 };
 
+// Add these styles to your StyleSheet
 const styles = StyleSheet.create({
+  // All your existing styles
   container: {
     flex: 1,
     backgroundColor: '#000',
@@ -376,6 +648,83 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: 'bold',
     marginLeft: 5,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#1a1a1a',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingTop: 30,
+    minHeight: '40%',
+  },
+  modalTitle: {
+    color: '#ff00ff',
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 25,
+    textAlign: 'center',
+  },
+  accountItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+    marginVertical: 5,
+  },
+  accountAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 15,
+    borderWidth: 2,
+    borderColor: '#ff00ff',
+  },
+  accountUsername: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '500',
+  },
+  addAccountButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    marginTop: 20,
+    backgroundColor: '#330033',
+    borderRadius: 10,
+  },
+  addAccountText: {
+    color: '#ff00ff',
+    fontSize: 18,
+    marginLeft: 15,
+    fontWeight: '500',
+  },
+  closeButton: {
+    alignItems: 'center',
+    padding: 15,
+    marginTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#333',
+  },
+  closeText: {
+    color: '#999',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  // Add to your existing styles
+  currentAccountItem: {
+    backgroundColor: 'rgba(255, 0, 255, 0.1)',
+    borderWidth: 1,
+    borderColor: '#ff00ff',
+    borderRadius: 10,
+  },
+  currentAccountBadge: {
+    marginLeft: 'auto',
   },
 });
 

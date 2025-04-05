@@ -51,11 +51,6 @@ const Sidebar = ({ isVisible, onClose }) => {
           </TouchableOpacity>
 
           <TouchableOpacity style={styles.menuItem}>
-            <Ionicons name="person" size={24} color="#ff00ff" />
-            <Text style={styles.menuText}>Profile</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity style={styles.menuItem}>
             <Ionicons name="settings" size={24} color="#ff00ff" />
             <Text style={styles.menuText}>Settings</Text>
           </TouchableOpacity>
