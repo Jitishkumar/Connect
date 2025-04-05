@@ -127,7 +127,7 @@ const SearchScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#660033',
+    backgroundColor: '#000',
   },
   header: {
     flexDirection: 'row',

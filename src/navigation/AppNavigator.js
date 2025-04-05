@@ -1,25 +1,76 @@
 import React from 'react';
-import { createStackNavigator } from '@react-navigation/stack';
+import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { Ionicons } from '@expo/vector-icons';
+import LoginScreen from '../screens/LoginScreen';
 import HomeScreen from '../screens/HomeScreen';
+import MessagesScreen from '../screens/MessagesScreen';
+import NotificationsScreen from '../screens/NotificationsScreen';
 import ProfileScreen from '../screens/ProfileScreen';
-import ConfessionScreen from '../screens/ConfessionScreen';
-import SearchScreen from '../screens/SearchScreen';
-import AddAccountScreen from '../screens/AddAccountScreen';
-import LoginScreen from '../screens/LoginScreen'; // You'll need to create this
+import SignupScreen from '../screens/SignupScreen';
 
-const Stack = createStackNavigator();
+const Stack = createNativeStackNavigator();
+const Tab = createBottomTabNavigator();
 
-const AppNavigator = () => {
+const TabNavigator = () => (
+  <Tab.Navigator
+    screenOptions={{
+      headerShown: false,
+      tabBarStyle: {
+        backgroundColor: '#000033',
+        borderTopWidth: 0,
+        height: 60,
+        paddingBottom: 5,
+      },
+      tabBarActiveTintColor: '#3399ff',
+      tabBarInactiveTintColor: '#666666',
+    }}
+  >
+    <Tab.Screen 
+      name="Home" 
+      component={HomeScreen}
+      options={{
+        tabBarIcon: ({ color }) => (
+          <Ionicons name="home-outline" size={24} color={color} />
+        ),
+      }}
+    />
+    <Tab.Screen 
+      name="Messages" 
+      component={MessagesScreen}
+      options={{
+        tabBarIcon: ({ color }) => (
+          <Ionicons name="chatbubble-outline" size={24} color={color} />
+        ),
+      }}
+    />
+    <Tab.Screen 
+      name="Notifications" 
+      component={NotificationsScreen}
+      options={{
+        tabBarIcon: ({ color }) => (
+          <Ionicons name="notifications-outline" size={24} color={color} />
+        ),
+      }}
+    />
+    <Tab.Screen 
+      name="Profile" 
+      component={ProfileScreen}
+      options={{
+        tabBarIcon: ({ color }) => (
+          <Ionicons name="person-outline" size={24} color={color} />
+        ),
+      }}
+    />
+  </Tab.Navigator>
+);
+
+export const AppNavigator = () => {
   return (
     <Stack.Navigator screenOptions={{ headerShown: false }}>
-      <Stack.Screen name="MainTabs" component={HomeTabs} />
-      <Stack.Screen name="Profile" component={ProfileScreen} />
-      <Stack.Screen name="Confession" component={ConfessionScreen} />
-      <Stack.Screen name="Search" component={SearchScreen} />
-      <Stack.Screen name="AddAccount" component={AddAccountScreen} />
       <Stack.Screen name="Login" component={LoginScreen} />
+      <Stack.Screen name="Signup" component={SignupScreen} />
+      <Stack.Screen name="MainApp" component={TabNavigator} />
     </Stack.Navigator>
   );
 };
-
-export default AppNavigator;

@@ -85,7 +85,7 @@ const MessagesScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000033',
+    backgroundColor: '#000',
   },
   header: {
     flexDirection: 'row',

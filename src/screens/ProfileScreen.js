@@ -1,10 +1,15 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import Sidebar from '../components/Sidebar';
+import AccountSwitcher from '../components/AccountSwitcher';
+import { useNavigation } from '@react-navigation/native';
+import { supabase } from '../config/supabase';
 
-const ProfileScreen = ({ navigation }) => {
+const ProfileScreen = () => {
   const [isSidebarVisible, setSidebarVisible] = useState(false);
+  const [isAccountSwitcherVisible, setAccountSwitcherVisible] = useState(false);
+  const navigation = useNavigation();
 
   return (
     <View style={styles.container}>
@@ -17,10 +22,15 @@ const ProfileScreen = ({ navigation }) => {
         <TouchableOpacity onPress={() => setSidebarVisible(true)}>
           <Ionicons name="menu" size={24} color="#ff00ff" />
         </TouchableOpacity>
-        <TouchableOpacity>
+        <TouchableOpacity onPress={() => setAccountSwitcherVisible(true)}>
           <Ionicons name="settings-outline" size={24} color="white" />
         </TouchableOpacity>
       </View>
+
+      <AccountSwitcher 
+        isVisible={isAccountSwitcherVisible}
+        onClose={() => setAccountSwitcherVisible(false)}
+      />
 
       {/* Cover photo section */}
       <ScrollView>
@@ -109,7 +119,7 @@ const ProfileScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#660033',
+    backgroundColor: '#000',
   },
   header: {
     flexDirection: 'row',

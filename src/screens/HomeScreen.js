@@ -25,7 +25,7 @@ const HomeScreen = () => {
     <View style={styles.container}>
       {}
       <LinearGradient
-        colors={['#f7f6f2', '#f7f6f2 ']}
+        colors={['#050505', '#050505 ']}
         style={styles.header}
       >
         <Text style={styles.logo}>Flexx</Text>
@@ -148,7 +148,7 @@ const HomeScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#f7f6f2 ',
+    backgroundColor: '#050505',
     paddingTop: 50,
   },
   header: {
