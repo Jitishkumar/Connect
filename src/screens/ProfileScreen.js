@@ -49,7 +49,11 @@ const ProfileScreen = () => {
           <Text style={styles.username}>@dave_brown</Text>
           <Text style={styles.bio}>Google Certified Ux/Ui Designer</Text>
           
-          <TouchableOpacity style={styles.editButton}>
+          // In the ProfileScreen component, update the edit button:
+          <TouchableOpacity 
+            style={styles.editButton}
+            onPress={() => navigation.navigate('EditProfile')}
+          >
             <Text style={styles.editButtonText}>EDIT PROFILE</Text>
           </TouchableOpacity>
 

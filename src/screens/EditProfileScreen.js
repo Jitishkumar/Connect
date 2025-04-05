@@ -1,15 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, Image, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../config/supabase';
-import * as ImagePicker from 'expo-image-picker';
 
 const EditProfileScreen = ({ navigation }) => {
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [bio, setBio] = useState('');
-  const [profileImage, setProfileImage] = useState(null);
-  const [coverImage, setCoverImage] = useState(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -30,29 +27,10 @@ const EditProfileScreen = ({ navigation }) => {
           setName(data.full_name || '');
           setUsername(data.username || '');
           setBio(data.bio || '');
-          setProfileImage(data.avatar_url);
-          setCoverImage(data.cover_url);
         }
       }
     } catch (error) {
       console.error('Error loading profile:', error);
-    }
-  };
-
-  const pickImage = async (type) => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: type === 'profile' ? [1, 1] : [16, 9],
-      quality: 0.8,
-    });
-
-    if (!result.canceled) {
-      if (type === 'profile') {
-        setProfileImage(result.assets[0].uri);
-      } else {
-        setCoverImage(result.assets[0].uri);
-      }
     }
   };
 
@@ -62,68 +40,64 @@ const EditProfileScreen = ({ navigation }) => {
       return;
     }
 
+    // Add username format validation
+    if (username.length < 3) {
+      Alert.alert('Error', 'Username must be at least 3 characters long');
+      return;
+    }
+
+    if (!/^[a-zA-Z0-9_]+$/.test(username)) {
+      Alert.alert('Error', 'Username can only contain letters, numbers, and underscores');
+      return;
+    }
+
     setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       
-      // Upload images if changed
-      let avatar_url = profileImage;
-      let cover_url = coverImage;
+      // Check if username is already taken by another user
+      const { data: existingUser, error: checkError } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('username', username.toLowerCase()) // Convert to lowercase for consistency
+        .neq('id', user.id)
+        .single();
 
-      if (profileImage && profileImage.startsWith('file')) {
-        const { data, error } = await uploadImage(profileImage, 'avatars');
-        if (data) avatar_url = data.publicUrl;
+      if (checkError && checkError.code !== 'PGRST116') {
+        console.error('Error checking username:', checkError);
+        Alert.alert('Error', 'Failed to check username availability');
+        return;
       }
 
-      if (coverImage && coverImage.startsWith('file')) {
-        const { data, error } = await uploadImage(coverImage, 'covers');
-        if (data) cover_url = data.publicUrl;
+      if (existingUser) {
+        Alert.alert('Error', 'Username is already taken');
+        setLoading(false);
+        return;
       }
 
-      // Update profile
-      const { error } = await supabase
+      // Update profile with lowercase username
+      const { error: updateError } = await supabase
         .from('profiles')
         .upsert({
           id: user.id,
           full_name: name,
-          username,
+          username: username.toLowerCase(), // Store username in lowercase
           bio,
-          avatar_url,
-          cover_url,
-          updated_at: new Date(),
-        });
+        }, { onConflict: 'id' });
 
-      if (error) throw error;
+      if (updateError) {
+        console.error('Error updating profile:', updateError);
+        Alert.alert('Error', updateError.message || 'Failed to update profile');
+        return;
+      }
       
       Alert.alert('Success', 'Profile updated successfully');
       navigation.goBack();
     } catch (error) {
-      Alert.alert('Error', 'Failed to update profile');
+      console.error('Unexpected error:', error);
+      Alert.alert('Error', 'An unexpected error occurred');
     } finally {
       setLoading(false);
-    }
-  };
-
-  const uploadImage = async (uri, folder) => {
-    try {
-      const response = await fetch(uri);
-      const blob = await response.blob();
-      const filename = `${folder}/${Date.now()}.jpg`;
-      
-      const { data, error } = await supabase.storage
-        .from('user-content')
-        .upload(filename, blob);
-
-      if (error) throw error;
-      
-      const { data: { publicUrl } } = supabase.storage
-        .from('user-content')
-        .getPublicUrl(filename);
-
-      return { publicUrl };
-    } catch (error) {
-      console.error('Error uploading image:', error);
-      return { error };
     }
   };
 
@@ -140,26 +114,6 @@ const EditProfileScreen = ({ navigation }) => {
           </Text>
         </TouchableOpacity>
       </View>
-
-      <TouchableOpacity onPress={() => pickImage('cover')} style={styles.coverPhotoContainer}>
-        <Image
-          source={coverImage ? { uri: coverImage } : require('../assets/default-cover.jpg')}
-          style={styles.coverPhoto}
-        />
-        <View style={styles.editCoverButton}>
-          <Ionicons name="camera" size={24} color="white" />
-        </View>
-      </TouchableOpacity>
-
-      <TouchableOpacity onPress={() => pickImage('profile')} style={styles.profileImageContainer}>
-        <Image
-          source={profileImage ? { uri: profileImage } : require('../assets/default-avatar.jpg')}
-          style={styles.profileImage}
-        />
-        <View style={styles.editProfileButton}>
-          <Ionicons name="camera" size={20} color="white" />
-        </View>
-      </TouchableOpacity>
 
       <View style={styles.form}>
         <View style={styles.inputContainer}>
@@ -225,44 +179,6 @@ const styles = StyleSheet.create({
   },
   saveButtonDisabled: {
     opacity: 0.5,
-  },
-  coverPhotoContainer: {
-    width: '100%',
-    height: 200,
-    position: 'relative',
-  },
-  coverPhoto: {
-    width: '100%',
-    height: '100%',
-    resizeMode: 'cover',
-  },
-  editCoverButton: {
-    position: 'absolute',
-    right: 15,
-    bottom: 15,
-    backgroundColor: 'rgba(0,0,0,0.5)',
-    padding: 10,
-    borderRadius: 20,
-  },
-  profileImageContainer: {
-    alignSelf: 'center',
-    marginTop: -50,
-    position: 'relative',
-  },
-  profileImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    borderWidth: 3,
-    borderColor: '#000',
-  },
-  editProfileButton: {
-    position: 'absolute',
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#ff00ff',
-    padding: 8,
-    borderRadius: 15,
   },
   form: {
     padding: 20,
