@@ -16,6 +16,22 @@ const UserProfileScreen = () => {
   useEffect(() => {
     loadUserProfile();
     checkFollowStatus();
+    
+    // Set up realtime subscription for follows
+    const followsSubscription = supabase
+      .channel('public:follows')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'follows', filter: `following_id=eq.${userId}` }, 
+        (payload) => {
+          // When a follow/unfollow happens, refresh the follow status
+          checkFollowStatus();
+      })
+      .subscribe();
+      
+    // Clean up subscription when component unmounts
+    return () => {
+      supabase.removeChannel(followsSubscription);
+    };
   }, [userId]);
 
   const loadUserProfile = async () => {
@@ -27,58 +43,46 @@ const UserProfileScreen = () => {
         .eq('id', userId)
         .single();
 
-      if (error) throw error;
-
-      if (data) {
+      if (error) {
+        console.error('Error loading user profile:', error);
+        setUserProfile(null);
+      } else {
         setUserProfile(data);
       }
     } catch (error) {
       console.error('Error loading user profile:', error);
+      setUserProfile(null);
     } finally {
       setLoading(false);
     }
   };
 
-  // In the checkFollowStatus function, add error handling for missing table
-  
   const checkFollowStatus = async () => {
     try {
       // Get current user
       const { data: { user } } = await supabase.auth.getUser();
       
       if (!user) return;
-  
+
       // Check if current user follows this profile
-      try {
-        const { data, error } = await supabase
-          .from('follows')
-          .select('*')
-          .eq('follower_id', user.id)
-          .eq('following_id', userId)
-          .single();
-  
-        if (error && error.code !== 'PGRST116') {
-          // PGRST116 is "no rows returned" error, which is expected if not following
-          console.error('Error checking follow status:', error);
-        }
-  
-        setIsFollowing(!!data);
-      } catch (error) {
-        // Handle the case where the table doesn't exist yet
-        if (error.code === '42P01') {
-          console.log('Follows table does not exist yet. Follow functionality will be limited.');
-          setIsFollowing(false);
-        } else {
-          console.error('Error checking follow status:', error);
-        }
+      const { data, error } = await supabase
+        .from('follows')
+        .select('*')
+        .eq('follower_id', user.id)
+        .eq('following_id', userId)
+        .single();
+
+      if (error && error.code !== 'PGRST116') {
+        // PGRST116 is "no rows returned" error, which is expected if not following
+        console.error('Error checking follow status:', error);
       }
+
+      setIsFollowing(!!data);
     } catch (error) {
       console.error('Error checking follow status:', error);
     }
   };
-  
-  // Similarly update the handleFollow function to handle missing table
-  
+
   const handleFollow = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -88,39 +92,38 @@ const UserProfileScreen = () => {
         navigation.navigate('Login');
         return;
       }
-  
-      try {
-        if (isFollowing) {
-          // Unfollow
-          const { error } = await supabase
-            .from('follows')
-            .delete()
-            .eq('follower_id', user.id)
-            .eq('following_id', userId);
-  
-          if (error) throw error;
-          setIsFollowing(false);
-        } else {
-          // Follow
-          const { error } = await supabase
-            .from('follows')
-            .insert({
-              follower_id: user.id,
-              following_id: userId,
-              created_at: new Date()
-            });
-  
-          if (error) throw error;
-          setIsFollowing(true);
+
+      if (isFollowing) {
+        // Unfollow
+        const { error } = await supabase
+          .from('follows')
+          .delete()
+          .eq('follower_id', user.id)
+          .eq('following_id', userId);
+
+        if (error) throw error;
+        setIsFollowing(false);
+      } else {
+        // Follow
+        const { error } = await supabase
+          .from('follows')
+          .insert({
+            follower_id: user.id,
+            following_id: userId
+            // Remove created_at as it's not in your table structure
+          });
+
+        if (error) {
+          // Check if error is due to unique constraint violation
+          if (error.code === '23505') {
+            console.log('Already following this user');
+            // Refresh follow status to ensure UI is correct
+            checkFollowStatus();
+            return;
+          }
+          throw error;
         }
-      } catch (error) {
-        if (error.code === '42P01') {
-          // Table doesn't exist
-          alert('Following functionality is not available yet.');
-        } else {
-          console.error('Error following/unfollowing user:', error);
-          alert('Failed to update follow status. Please try again later.');
-        }
+        setIsFollowing(true);
       }
     } catch (error) {
       console.error('Error following/unfollowing user:', error);
