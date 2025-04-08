@@ -9,6 +9,8 @@ const UserProfileScreen = () => {
   const [loading, setLoading] = useState(true);
   const [showFullBio, setShowFullBio] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
+  const [followersCount, setFollowersCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
   const navigation = useNavigation();
   const route = useRoute();
   const { userId } = route.params;
@@ -16,6 +18,8 @@ const UserProfileScreen = () => {
   useEffect(() => {
     loadUserProfile();
     checkFollowStatus();
+    fetchFollowersCount();
+    fetchFollowingCount();
     
     // Set up realtime subscription for follows
     const followsSubscription = supabase
@@ -25,6 +29,8 @@ const UserProfileScreen = () => {
         (payload) => {
           // When a follow/unfollow happens, refresh the follow status
           checkFollowStatus();
+          fetchFollowersCount();
+          fetchFollowingCount();
       })
       .subscribe();
       
@@ -59,12 +65,10 @@ const UserProfileScreen = () => {
 
   const checkFollowStatus = async () => {
     try {
-      // Get current user
       const { data: { user } } = await supabase.auth.getUser();
       
       if (!user) return;
 
-      // Check if current user follows this profile
       const { data, error } = await supabase
         .from('follows')
         .select('*')
@@ -73,13 +77,46 @@ const UserProfileScreen = () => {
         .single();
 
       if (error && error.code !== 'PGRST116') {
-        // PGRST116 is "no rows returned" error, which is expected if not following
         console.error('Error checking follow status:', error);
       }
 
       setIsFollowing(!!data);
     } catch (error) {
       console.error('Error checking follow status:', error);
+    }
+  };
+
+  const fetchFollowersCount = async () => {
+    try {
+      const { count, error } = await supabase
+        .from('follows')
+        .select('*', { count: 'exact' })
+        .eq('following_id', userId);
+
+      if (error) {
+        console.error('Error fetching followers count:', error);
+      } else {
+        setFollowersCount(count);
+      }
+    } catch (error) {
+      console.error('Error fetching followers count:', error);
+    }
+  };
+
+  const fetchFollowingCount = async () => {
+    try {
+      const { count, error } = await supabase
+        .from('follows')
+        .select('*', { count: 'exact' })
+        .eq('follower_id', userId);
+
+      if (error) {
+        console.error('Error fetching following count:', error);
+      } else {
+        setFollowingCount(count);
+      }
+    } catch (error) {
+      console.error('Error fetching following count:', error);
     }
   };
 
@@ -130,6 +167,14 @@ const UserProfileScreen = () => {
     }
   };
 
+  const handleMessage = () => {
+    navigation.navigate('MessageScreen', { 
+      recipientId: userId,
+      recipientName: userProfile.username,
+      recipientAvatar: userProfile.avatar_url
+    });
+  };
+  
   const renderBio = () => {
     if (!userProfile?.bio) return null;
     
@@ -208,17 +253,25 @@ const UserProfileScreen = () => {
           </View>
           {renderBio()}
           
-          <TouchableOpacity 
-            style={[
-              styles.followButton,
-              isFollowing ? styles.followingButton : {}
-            ]}
-            onPress={handleFollow}
-          >
-            <Text style={styles.followButtonText}>
-              {isFollowing ? 'FOLLOWING' : 'FOLLOW'}
-            </Text>
-          </TouchableOpacity>
+          <View style={styles.buttonContainer}>
+            <TouchableOpacity 
+              style={[
+                styles.followButton,
+                isFollowing ? styles.followingButton : {}
+              ]}
+              onPress={handleFollow}
+            >
+              <Text style={styles.followButtonText}>
+                {isFollowing ? 'FOLLOWING' : 'FOLLOW'}
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.messageButton}
+              onPress={handleMessage}
+            >
+              <Ionicons name="chatbubble-outline" size={24} color="#ff00ff" />
+            </TouchableOpacity>
+          </View>
 
           <View style={styles.statsContainer}>
             <View style={styles.stat}>
@@ -230,11 +283,11 @@ const UserProfileScreen = () => {
               <Text style={styles.statLabel}>Shorts</Text>
             </View>
             <View style={styles.stat}>
-              <Text style={styles.statNumber}>10k</Text>
+              <Text style={styles.statNumber}>{followersCount}</Text>
               <Text style={styles.statLabel}>Followers</Text>
             </View>
             <View style={styles.stat}>
-              <Text style={styles.statNumber}>64</Text>
+              <Text style={styles.statNumber}>{followingCount}</Text>
               <Text style={styles.statLabel}>Following</Text>
             </View>
           </View>
@@ -279,6 +332,7 @@ const UserProfileScreen = () => {
     </View>
   );
 };
+
 
 const styles = StyleSheet.create({
   container: {
@@ -383,12 +437,18 @@ const styles = StyleSheet.create({
     color: '#ff00ff',
     fontWeight: '600',
   },
+  buttonContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 15,
+  },
   followButton: {
     backgroundColor: '#ff00ff',
     paddingHorizontal: 30,
     paddingVertical: 8,
     borderRadius: 20,
-    marginTop: 15,
+    marginRight: 10, // Add margin to separate buttons
   },
   followingButton: {
     backgroundColor: 'transparent',
@@ -398,6 +458,14 @@ const styles = StyleSheet.create({
   followButtonText: {
     color: 'white',
     fontWeight: '600',
+  },
+  messageButton: {
+    backgroundColor: '#fff',
+    paddingHorizontal: 20,
+    paddingVertical: 10,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#ff00ff',
   },
   statsContainer: {
     flexDirection: 'row',

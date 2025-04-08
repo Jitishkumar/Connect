@@ -80,10 +80,10 @@ const styles = StyleSheet.create({
     height: '100%',
     backgroundColor: '#330033',
     padding: 20,
-    paddingTop: 50,
+    paddingTop: 20,
   },
   closeButton: {
-    marginBottom: 30,
+    marginBottom: 10,
   },
   menuItem: {
     flexDirection: 'row',

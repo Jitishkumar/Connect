@@ -255,9 +255,81 @@ const ProfileScreen = () => {
   const [isAccountSwitcherVisible, setAccountSwitcherVisible] = useState(false);
   const [userProfile, setUserProfile] = useState(null);
   const [showFullBio, setShowFullBio] = useState(false);
+  const [followersCount, setFollowersCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
   const navigation = useNavigation();
 
-  // Add this function to handle bio display
+  useFocusEffect(
+    React.useCallback(() => {
+      loadUserProfile();
+      fetchFollowersCount();
+      fetchFollowingCount();
+    }, [])
+  );
+
+  const loadUserProfile = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (error) {
+        console.error('Error loading user profile:', error);
+        setUserProfile(null);
+      } else {
+        setUserProfile(data);
+      }
+    } catch (error) {
+      console.error('Error loading user profile:', error);
+      setUserProfile(null);
+    }
+  };
+
+  const fetchFollowersCount = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { count, error } = await supabase
+        .from('follows')
+        .select('*', { count: 'exact' })
+        .eq('following_id', user.id);
+
+      if (error) {
+        console.error('Error fetching followers count:', error);
+      } else {
+        setFollowersCount(count);
+      }
+    } catch (error) {
+      console.error('Error fetching followers count:', error);
+    }
+  };
+
+  const fetchFollowingCount = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { count, error } = await supabase
+        .from('follows')
+        .select('*', { count: 'exact' })
+        .eq('follower_id', user.id);
+
+      if (error) {
+        console.error('Error fetching following count:', error);
+      } else {
+        setFollowingCount(count);
+      }
+    } catch (error) {
+      console.error('Error fetching following count:', error);
+    }
+  };
+
   const renderBio = () => {
     if (!userProfile?.bio) return null;
     
@@ -279,82 +351,6 @@ const ProfileScreen = () => {
         </Text>
       </View>
     );
-  };
-
-  // Replace the existing useEffect with useFocusEffect
-  useFocusEffect(
-    React.useCallback(() => {
-      loadUserProfile();
-    }, [])
-  );
-
-  // In the loadUserProfile function, update the account information instead of just adding it
-  const loadUserProfile = async () => {
-    let retryCount = 0;
-    const maxRetries = 3;
-  
-    while (retryCount < maxRetries) {
-      try {
-        const { data: { user, session } } = await supabase.auth.getUser();
-        if (user) {
-          const { data, error } = await supabase
-            .from('profiles')
-            .select('*')
-            .eq('id', user.id)
-            .single();
-  
-          if (error) throw error;
-  
-          if (data) {
-            console.log('User rank:', data.rank);
-            setUserProfile(data);
-            setShowFullBio(false);
-            
-            // Get the current session to store the refresh token
-            const { data: sessionData } = await supabase.auth.getSession();
-            const refreshToken = sessionData?.session?.refresh_token;
-            
-            // Update or add the account with the latest information
-            const accountExists = accounts.findIndex(acc => acc.id === data.id);
-            if (accountExists >= 0) {
-              // Update existing account
-              const updatedAccounts = [...accounts];
-              updatedAccounts[accountExists] = {
-                id: data.id,
-                username: data.username,
-                avatar_url: data.avatar_url,
-                email: user.email,
-                session_token: refreshToken // Store refresh token
-              };
-              // Use the context's update function to update accounts
-              addAccount(updatedAccounts[accountExists]);
-            } else {
-              // Add new account
-              addAccount({
-                id: data.id,
-                username: data.username,
-                avatar_url: data.avatar_url,
-                email: user.email,
-                session_token: refreshToken // Store refresh token
-              });
-            }
-            return;
-          }
-        }
-      } catch (error) {
-        console.error(`Attempt ${retryCount + 1} failed:`, error);
-        if (retryCount === maxRetries - 1) {
-          Alert.alert(
-            'Connection Error',
-            'Unable to load profile. Please check your internet connection and try again.',
-            [{ text: 'OK' }]
-          );
-        }
-        retryCount++;
-        // Wait for 1 second before retrying
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-    }
   };
 
   return (
@@ -380,7 +376,6 @@ const ProfileScreen = () => {
       />
       
       <ScrollView>
-        {/* Profile section */}
         <View style={styles.profileSection}>
           <View style={styles.coverPhotoContainer}>
             <Image
@@ -390,7 +385,7 @@ const ProfileScreen = () => {
           </View>
           <Image
             style={styles.profileImage}
-            source={{ uri: 'https://via.placeholder.com/150' }}
+            source={{ uri: userProfile?.avatar_url || 'https://via.placeholder.com/150' }}
           />
           <Text style={styles.name}>{userProfile?.full_name || 'No name set'}</Text>
           <Text style={styles.username}>@{userProfile?.username || 'username'}</Text>
@@ -421,11 +416,11 @@ const ProfileScreen = () => {
               <Text style={styles.statLabel}>Shorts</Text>
             </View>
             <View style={styles.stat}>
-              <Text style={styles.statNumber}>10k</Text>
+              <Text style={styles.statNumber}>{followersCount}</Text>
               <Text style={styles.statLabel}>Followers</Text>
             </View>
             <View style={styles.stat}>
-              <Text style={styles.statNumber}>64</Text>
+              <Text style={styles.statNumber}>{followingCount}</Text>
               <Text style={styles.statLabel}>Following</Text>
             </View>
           </View>
@@ -482,7 +477,6 @@ const ProfileScreen = () => {
 
 // Add these styles to your StyleSheet
 const styles = StyleSheet.create({
-  // All your existing styles
   container: {
     flex: 1,
     backgroundColor: '#000',
@@ -490,7 +484,7 @@ const styles = StyleSheet.create({
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    padding: 16,
+    padding: 18,
     paddingTop: 50,
   },
   profileSection: {

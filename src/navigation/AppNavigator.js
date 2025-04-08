@@ -11,7 +11,8 @@ import SignupScreen from '../screens/SignupScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
 import SearchScreen from '../screens/SearchScreen';
 import ConfessionScreen from '../screens/ConfessionScreen';
-import UserProfileScreen from '../screens/UserProfileScreen'; // Add this import
+import UserProfileScreen from '../screens/UserProfileScreen';
+import MessageScreen from '../screens/MessageScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -79,6 +80,7 @@ export const AppNavigator = () => {
       <Stack.Screen name="Search" component={SearchScreen} />
       <Stack.Screen name="Confession" component={ConfessionScreen} />
       <Stack.Screen name="UserProfile" component={UserProfileScreen} />
+      <Stack.Screen name="MessageScreen" component={MessageScreen} />
     </Stack.Navigator>
   );
 };

@@ -149,13 +149,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#050505',
-    paddingTop: 50,
+    paddingTop: 40,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 15,
+    padding: 2,
+    paddingTop: 3, // Added top padding for notch/camera area
     backgroundColor: '#000033',
   },
   logo: {
