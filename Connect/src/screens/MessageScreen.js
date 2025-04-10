@@ -1,3 +1,6 @@
+
+
+
 import React, { useState, useEffect, useRef } from 'react';
 import { 
   View, 
@@ -90,7 +93,8 @@ const MessageScreen = () => {
         id: newMessage.id,
         text: newMessage.content,
         sender: newMessage.sender_id === userId ? 'me' : 'them',
-        timestamp: new Date(newMessage.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+        timestamp: new Date(newMessage.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+        sender_id: newMessage.sender_id
       };
       
       setMessages(prevMessages => [...prevMessages, formattedMessage]);
@@ -107,6 +111,20 @@ const MessageScreen = () => {
     try {
       setLoading(true);
       
+      // Get current user ID if not already set
+      let currentUserId = userId;
+      if (!currentUserId) {
+        const { data: { user } } = await supabase.auth.getUser();
+        if (user) {
+          currentUserId = user.id;
+          setUserId(currentUserId);
+        } else {
+          console.error('User not authenticated');
+          navigation.navigate('Login');
+          return;
+        }
+      }
+      
       // Try to get messages from Supabase
       const { data, error } = await supabase
         .from('messages')
@@ -119,15 +137,22 @@ const MessageScreen = () => {
         // Try to load from local storage as fallback
         const storedMessages = await AsyncStorage.getItem(`conversation_${convId}`);
         if (storedMessages) {
-          setMessages(JSON.parse(storedMessages));
+          // Parse stored messages and ensure sender property is correctly set
+          const parsedMessages = JSON.parse(storedMessages);
+          const updatedMessages = parsedMessages.map(msg => ({
+            ...msg,
+            sender: msg.sender_id === currentUserId ? 'me' : 'them'
+          }));
+          setMessages(updatedMessages);
         }
       } else {
         // Format messages for our UI
         const formattedMessages = data.map(msg => ({
           id: msg.id,
           text: msg.content,
-          sender: msg.sender_id === userId ? 'me' : 'them',
-          timestamp: new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
+          sender: msg.sender_id === currentUserId ? 'me' : 'them',
+          timestamp: new Date(msg.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}),
+          sender_id: msg.sender_id
         }));
         
         setMessages(formattedMessages);
@@ -156,6 +181,7 @@ const MessageScreen = () => {
         id: Date.now().toString(), 
         text: inputText,
         sender: 'me',
+        sender_id: userId,
         timestamp: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})
       };
       
@@ -168,7 +194,7 @@ const MessageScreen = () => {
       await AsyncStorage.setItem(`conversation_${conversationId}`, JSON.stringify(updatedMessages));
       
       // Insert into Supabase
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('messages')
         .insert({
           conversation_id: conversationId,
@@ -176,10 +202,21 @@ const MessageScreen = () => {
           receiver_id: recipientId,
           content: inputText,
           created_at: new Date().toISOString()
-        });
+        })
+        .select()
+        .single();
         
       if (error) {
         console.error('Error sending message:', error);
+        // Remove the temporary message if there was an error
+        setMessages(prevMessages => prevMessages.filter(msg => msg.id !== newMessage.id));
+      } else {
+        // Update the message with the real ID from the database
+        setMessages(prevMessages => 
+          prevMessages.map(msg => 
+            msg.id === newMessage.id ? { ...msg, id: data.id } : msg
+          )
+        );
       }
     } catch (error) {
       console.error('Error sending message:', error);
@@ -188,6 +225,13 @@ const MessageScreen = () => {
 
   const deleteMessage = async (messageId) => {
     try {
+      // First check if the message belongs to the current user
+      const messageToDelete = messages.find(msg => msg.id === messageId);
+      if (!messageToDelete || messageToDelete.sender_id !== userId) {
+        console.error('Cannot delete message: not authorized');
+        return;
+      }
+
       const { error } = await supabase
         .from('messages')
         .delete()
@@ -215,7 +259,7 @@ const MessageScreen = () => {
   const renderMessage = ({ item }) => (
     <TouchableOpacity
       onLongPress={() => {
-        if (item.sender === 'me') {
+        if (item.sender_id === userId) {
           Alert.alert(
             'Delete Message',
             'Are you sure you want to delete this message?',
@@ -482,3 +526,5 @@ const styles = StyleSheet.create({
 });
 
 export default MessageScreen;
+
+
