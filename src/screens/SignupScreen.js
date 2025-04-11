@@ -19,6 +19,7 @@ const SignupScreen = () => {
 
     setLoading(true);
     try {
+      // Step 1: Sign up the user with auth
       const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
         password: password.trim(),
@@ -31,10 +32,60 @@ const SignupScreen = () => {
 
       if (error) {
         Alert.alert('Error', error.message);
+        return;
+      }
+      
+      // Step 2: Create a profile record for the user
+      if (data && data.user) {
+        // Get the current highest rank to assign the next rank number
+        const { data: rankData, error: rankError } = await supabase
+          .from('profiles')
+          .select('rank')
+          .order('rank', { ascending: false })
+          .limit(1);
+        
+        const nextRank = rankData && rankData.length > 0 && rankData[0].rank 
+          ? rankData[0].rank + 1 
+          : 1; // Start with 1 if no profiles exist
+
+        // First insert the profile without trying to return it
+        const { error: profileError } = await supabase
+          .from('profiles')
+          .insert([
+            { 
+              id: data.user.id,
+              username: username.trim(),
+              created_at: new Date().toISOString(),
+              avatar_url: null,
+              bio: null,
+              rank: nextRank
+            }
+          ]);
+          
+        // If profile creation was successful, verify it exists by fetching it separately
+        if (!profileError) {
+          const { data: profileData, error: fetchError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', data.user.id)
+            .maybeSingle(); // Use maybeSingle() instead of single() to avoid PGRST116 error
+            
+          if (fetchError) {
+            console.error('Error verifying profile:', fetchError);
+          }
+        }
+          
+        if (profileError) {
+          console.error('Error creating profile:', profileError);
+          Alert.alert('Warning', 'Account created but profile setup failed. Some features may be limited.');
+        } else {
+          Alert.alert('Success', 'Account created successfully!');
+        }
       } else {
         Alert.alert('Success', 'Account created successfully!');
-        navigation.navigate('Login');
       }
+      
+      navigation.navigate('Login');
     } catch (error) {
       Alert.alert('Error', 'An unexpected error occurred');
     } finally {

@@ -58,9 +58,61 @@ export const AccountProvider = ({ children }) => {
         .eq('id', session.user.id)
         .single();
 
-      if (error) throw error;
+      if (error) {
+        // If profile doesn't exist, create one with basic information
+        if (error.code === 'PGRST116') {
+          // Create a basic profile for the user
+          // Get the current highest rank to assign the next rank number
+          const { data: rankData, error: rankError } = await supabase
+            .from('profiles')
+            .select('rank')
+            .order('rank', { ascending: false })
+            .limit(1);
+          
+          const nextRank = rankData && rankData.length > 0 && rankData[0].rank 
+            ? rankData[0].rank + 1 
+            : 1; // Start with 1 if no profiles exist
 
-      // Update or add account
+          // Insert the profile first without trying to return it
+          const { error: insertError } = await supabase
+            .from('profiles')
+            .insert([
+              { 
+                id: session.user.id,
+                username: `user_${session.user.id.substring(0, 8)}`,
+                created_at: new Date().toISOString(),
+                rank: nextRank
+              }
+            ]);
+            
+          if (insertError) throw insertError;
+          
+          // Then fetch the profile separately to ensure we get it
+          const { data: newProfile, error: fetchError } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+            
+          if (fetchError) throw fetchError;
+          
+          // Use the newly created profile
+          const updatedAccount = {
+            id: session.user.id,
+            username: newProfile.username,
+            avatar_url: null,
+            email: session.user.email,
+            session_token: session.refresh_token,
+          };
+          
+          addAccount(updatedAccount);
+          return;
+        } else {
+          throw error;
+        }
+      }
+
+      // Update or add account with existing profile
       const updatedAccount = {
         id: session.user.id,
         username: profile.username,
