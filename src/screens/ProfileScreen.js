@@ -261,7 +261,47 @@ const ProfileScreen = () => {
 
   useFocusEffect(
     React.useCallback(() => {
-      loadUserProfile();
+      const loadProfile = async () => {
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            const { data, error } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', user.id)
+              .single();
+
+            if (data) {
+              console.log('Raw Profile Data:', data);
+              
+              // Extract clean file paths
+              const avatarPath = data.avatar_url?.replace(/^.*\/media\//, '') || '';
+              const coverPath = data.cover_url?.replace(/^.*\/media\//, '') || '';
+              
+              // Get updated URLs
+              const { data: avatarData } = supabase.storage
+                .from('media')
+                .getPublicUrl(avatarPath);
+              const { data: coverData } = supabase.storage
+                .from('media')
+                .getPublicUrl(coverPath);
+
+              const avatarUrl = avatarPath ? avatarData.publicUrl : null;
+              const coverUrl = coverPath ? coverData.publicUrl : null;
+
+              setUserProfile({
+                ...data,
+                avatar_url: avatarUrl,
+                cover_url: coverUrl
+              });
+            }
+          }
+        } catch (error) {
+          console.error('Error loading profile:', error);
+        }
+      };
+
+      loadProfile();
       fetchFollowersCount();
       fetchFollowingCount();
     }, [])
@@ -272,7 +312,14 @@ const ProfileScreen = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      const { data, error } = await supabase
+      // First get the old profile data to compare
+      const { data: oldData } = await supabase
+        .from('profiles')
+        .select('avatar_url, cover_url')
+        .eq('id', user.id)
+        .single();
+
+      const { data: newData, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', user.id)
@@ -282,7 +329,55 @@ const ProfileScreen = () => {
         console.error('Error loading user profile:', error);
         setUserProfile(null);
       } else {
-        setUserProfile(data);
+        // Remove old files if they're different from new ones
+        if (oldData?.avatar_url && oldData.avatar_url !== newData.avatar_url) {
+          const oldAvatarPath = oldData.avatar_url.includes('/media/') 
+            ? oldData.avatar_url.split('/media/')[1] 
+            : oldData.avatar_url;
+            
+          console.log('Attempting to remove old avatar:', oldAvatarPath);
+          const { error: removeError } = await supabase.storage
+            .from('media')
+            .remove([oldAvatarPath]);
+            
+          if (removeError) {
+            console.log('Error removing old avatar:', removeError.message);
+          } else {
+            console.log('Successfully removed old avatar');
+          }
+        }
+
+        if (oldData?.cover_url && oldData.cover_url !== newData.cover_url) {
+          const oldCoverPath = oldData.cover_url.includes('/media/') 
+            ? oldData.cover_url.split('/media/')[1] 
+            : oldData.cover_url;
+            
+          console.log('Attempting to remove old cover:', oldCoverPath);
+          const { error: removeError } = await supabase.storage
+            .from('media')
+            .remove([oldCoverPath]);
+            
+          if (removeError) {
+            console.log('Error removing old cover:', removeError.message);
+          } else {
+            console.log('Successfully removed old cover');
+          }
+        }
+
+        // Get direct URLs from Supabase storage
+        const avatarUrl = newData.avatar_url ? 
+          supabase.storage.from('media').getPublicUrl(newData.avatar_url).data.publicUrl : 
+          null;
+        
+        const coverUrl = newData.cover_url ? 
+          supabase.storage.from('media').getPublicUrl(newData.cover_url).data.publicUrl : 
+          null;
+
+        setUserProfile({
+          ...newData,
+          avatar_url: avatarUrl,
+          cover_url: coverUrl
+        });
       }
     } catch (error) {
       console.error('Error loading user profile:', error);
@@ -377,16 +472,37 @@ const ProfileScreen = () => {
       
       <ScrollView>
         <View style={styles.profileSection}>
+          {/* Cover Photo */}
           <View style={styles.coverPhotoContainer}>
             <Image
               style={styles.coverPhoto}
-              source={{ uri: 'https://via.placeholder.com/800x300' }}
+              source={userProfile?.cover_url 
+                ? { 
+                    uri: userProfile.cover_url,
+                    cache: 'reload'
+                  } 
+                : require('../../assets/default-cover.png')
+              }
+              onLoadStart={() => console.log('Cover photo loading started')}
+              onLoadEnd={() => console.log('Cover photo loading ended')}
+              onError={(e) => console.log('Cover photo error:', e.nativeEvent.error)}
             />
           </View>
+          
           <Image
             style={styles.profileImage}
-            source={{ uri: userProfile?.avatar_url || 'https://via.placeholder.com/150' }}
+            source={userProfile?.avatar_url 
+              ? { 
+                  uri: userProfile.avatar_url,
+                  cache: 'reload'
+                } 
+              : require('../../assets/default-avatar.png')
+            }
+            onLoadStart={() => console.log('Avatar loading started')}
+            onLoadEnd={() => console.log('Avatar loading ended')}
+            onError={(e) => console.log('Avatar error:', e.nativeEvent.error)}
           />
+          
           <Text style={styles.name}>{userProfile?.full_name || 'No name set'}</Text>
           <Text style={styles.username}>@{userProfile?.username || 'username'}</Text>
           <View style={styles.rankBadge}>
@@ -604,16 +720,25 @@ const styles = StyleSheet.create({
   coverPhotoContainer: {
     width: '100%',
     height: 200,
-    marginBottom: -50, // Overlap with profile picture
+    marginBottom: -50,
     borderRadius: 15,
     overflow: 'hidden',
-    borderWidth: 2,
-    borderColor: '#1DA1F2',
+    backgroundColor: '#1a1a1a', // Add background color
   },
   coverPhoto: {
     width: '100%',
     height: '100%',
     resizeMode: 'cover',
+    backgroundColor: '#1a1a1a', // Add this line
+  },
+  profileImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 3,
+    borderColor: '#e3a6be',
+    backgroundColor: '#1a1a1a', // Add background color
+    marginTop: 10, // Add margin to separate from cover photo
   },
   bioContainer: {
     marginTop: 10,

@@ -1,13 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../config/supabase';
+import * as ImagePicker from 'expo-image-picker';
+import { decode } from 'base64-arraybuffer';
 
 const EditProfileScreen = ({ navigation }) => {
   const [name, setName] = useState('');
   const [username, setUsername] = useState('');
   const [bio, setBio] = useState('');
   const [loading, setLoading] = useState(false);
+  const [avatarUrl, setAvatarUrl] = useState(null);
+  const [coverUrl, setCoverUrl] = useState(null);
 
   useEffect(() => {
     loadUserProfile();
@@ -27,10 +31,79 @@ const EditProfileScreen = ({ navigation }) => {
           setName(data.full_name || '');
           setUsername(data.username || '');
           setBio(data.bio || '');
+          setAvatarUrl(data.avatar_url);
+          setCoverUrl(data.cover_url);
         }
       }
     } catch (error) {
       console.error('Error loading profile:', error);
+    }
+  };
+
+  const pickImage = async (type) => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: type === 'avatar' ? [1, 1] : [16, 9],
+        quality: 0.5,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        const file = result.assets[0];
+        await uploadImage(file.base64, type);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to pick image');
+    }
+  };
+
+  const uploadImage = async (base64Image, type) => {
+    try {
+      setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('No user');
+
+      const filePath = `${user.id}/${type}_${Date.now()}.jpg`;
+      const contentType = 'image/jpeg';
+      const body = decode(base64Image);
+
+      // Delete old file if exists
+      if (type === 'avatar' && avatarUrl) {
+        const oldPath = avatarUrl.split('/').pop();
+        await supabase.storage.from('media').remove([`${user.id}/${oldPath}`]);
+      } else if (type === 'cover' && coverUrl) {
+        const oldPath = coverUrl.split('/').pop();
+        await supabase.storage.from('media').remove([`${user.id}/${oldPath}`]);
+      }
+
+      // Upload new file
+      const { error: uploadError } = await supabase.storage
+        .from('media')
+        .upload(filePath, body, { contentType, upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      // Get the public URL using the correct format
+      const { data } = supabase.storage
+        .from('media')
+        .getPublicUrl(filePath);
+
+      const publicUrl = data.publicUrl;
+
+      if (type === 'avatar') {
+        setAvatarUrl(publicUrl);
+      } else {
+        setCoverUrl(publicUrl);
+      }
+
+      console.log(`${type} URL:`, publicUrl); // Debug log
+    } catch (error) {
+      console.error('Upload error:', error); // Debug log
+      Alert.alert('Error', error.message);
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -83,6 +156,8 @@ const EditProfileScreen = ({ navigation }) => {
           full_name: name,
           username: username.toLowerCase(), // Store username in lowercase
           bio,
+          avatar_url: avatarUrl,
+          cover_url: coverUrl,
         }, { onConflict: 'id' });
 
       if (updateError) {
@@ -103,6 +178,32 @@ const EditProfileScreen = ({ navigation }) => {
 
   return (
     <ScrollView style={styles.container}>
+      {/* Cover Photo */}
+      <TouchableOpacity onPress={() => pickImage('cover')} style={styles.coverContainer}>
+        {coverUrl ? (
+          <Image source={{ uri: coverUrl }} style={styles.coverPhoto} />
+        ) : (
+          <View style={styles.coverPlaceholder}>
+            <Ionicons name="image-outline" size={40} color="#666" />
+            <Text style={styles.placeholderText}>Add Cover Photo</Text>
+          </View>
+        )}
+      </TouchableOpacity>
+
+      {/* Profile Photo */}
+      <TouchableOpacity onPress={() => pickImage('avatar')} style={styles.avatarContainer}>
+        {avatarUrl ? (
+          <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+        ) : (
+          <View style={styles.avatarPlaceholder}>
+            <Ionicons name="person-outline" size={40} color="#666" />
+          </View>
+        )}
+        <View style={styles.editIconContainer}>
+          <Ionicons name="camera" size={20} color="#fff" />
+        </View>
+      </TouchableOpacity>
+
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="#ff00ff" />
@@ -201,6 +302,64 @@ const styles = StyleSheet.create({
   bioInput: {
     height: 100,
     textAlignVertical: 'top',
+  },
+  coverContainer: {
+    height: 200,
+    width: '100%',
+    backgroundColor: '#001453',
+    marginBottom: -50,
+  },
+  coverPhoto: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+  },
+  coverPlaceholder: {
+    height: '100%',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarContainer: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    marginLeft: 20,
+    elevation: 4,
+    position: 'relative',
+  },
+  avatar: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 50,
+    borderWidth: 3,
+    borderColor: '#000B2E',
+  },
+  avatarPlaceholder: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 50,
+    backgroundColor: '#001453',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#000B2E',
+  },
+  editIconContainer: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: '#0066FF',
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#000B2E',
+  },
+  placeholderText: {
+    color: '#666',
+    marginTop: 8,
   },
 });
 
