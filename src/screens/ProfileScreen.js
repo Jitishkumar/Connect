@@ -149,10 +149,16 @@ const AccountSwitcherModal = ({ visible, onClose, loadUserProfile }) => {
                         // Navigate to Main to refresh the UI
                         // In the AccountSwitcherModal component, update both navigation reset calls
                         
-                        // Change this:
+                        // Around line 130-140, change this:
                         navigation.reset({
                           index: 0,
                           routes: [{ name: 'Main' }],
+                        });
+                        
+                        // To this:
+                        navigation.reset({
+                          index: 0,
+                          routes: [{ name: 'MainApp' }],
                         });
                         return;
                       } else {

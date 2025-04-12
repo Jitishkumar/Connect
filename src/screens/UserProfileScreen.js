@@ -55,30 +55,54 @@ const UserProfileScreen = () => {
       } else {
         console.log('Raw profile data:', data); // Debug log for raw data
         
-        // Process avatar URL
+        // Fix for nested URLs in avatar_url and cover_url
         let avatarUrl = null;
+        let coverUrl = null;
+        
         if (data.avatar_url) {
-          // Try to fix nested URL issue
-          const cleanAvatarUrl = data.avatar_url.replace(/^https:\/\/.*\/media\//, '');
-          const { data: avatarData } = supabase.storage.from('media').getPublicUrl(cleanAvatarUrl);
-          avatarUrl = avatarData?.publicUrl;
-          console.log('Processed Avatar URL:', avatarUrl);
+          console.log('Avatar loading started');
+          // Handle double-nested URLs by extracting just the file path
+          let avatarPath = data.avatar_url;
+          
+          // Check if URL is nested (contains the URL twice)
+          if (avatarPath.includes('media/media/')) {
+            // Extract just the file path after the last 'media/'
+            const parts = avatarPath.split('media/');
+            avatarPath = parts[parts.length - 1];
+          } else if (avatarPath.includes('media/')) {
+            // For single nested URLs
+            avatarPath = avatarPath.split('media/').pop();
+          }
+          
+          // Get the public URL directly
+          avatarUrl = `https://lckhaysswueoyinhfzyz.supabase.co/storage/v1/object/public/media/${avatarPath}`;
+          console.log('Fixed Avatar URL:', avatarUrl);
         }
         
-        // Process cover URL
-        let coverUrl = null;
         if (data.cover_url) {
-          // Try to fix nested URL issue
-          const cleanCoverUrl = data.cover_url.replace(/^https:\/\/.*\/media\//, '');
-          const { data: coverData } = supabase.storage.from('media').getPublicUrl(cleanCoverUrl);
-          coverUrl = coverData?.publicUrl;
-          console.log('Processed Cover URL:', coverUrl);
+          console.log('Cover photo loading started');
+          // Handle double-nested URLs by extracting just the file path
+          let coverPath = data.cover_url;
+          
+          // Check if URL is nested (contains the URL twice)
+          if (coverPath.includes('media/media/')) {
+            // Extract just the file path after the last 'media/'
+            const parts = coverPath.split('media/');
+            coverPath = parts[parts.length - 1];
+          } else if (coverPath.includes('media/')) {
+            // For single nested URLs
+            coverPath = coverPath.split('media/').pop();
+          }
+          
+          // Get the public URL directly
+          coverUrl = `https://lckhaysswueoyinhfzyz.supabase.co/storage/v1/object/public/media/${coverPath}`;
+          console.log('Fixed Cover URL:', coverUrl);
         }
-  
+
         setUserProfile({
           ...data,
-          avatar_url: avatarUrl || data.avatar_url, // Fallback to original URL if processing fails
-          cover_url: coverUrl || data.cover_url     // Fallback to original URL if processing fails
+          avatar_url: avatarUrl,
+          cover_url: coverUrl
         });
       }
     } catch (error) {
