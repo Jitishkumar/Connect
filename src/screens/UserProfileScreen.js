@@ -48,12 +48,38 @@ const UserProfileScreen = () => {
         .select('*')
         .eq('id', userId)
         .single();
-
+  
       if (error) {
         console.error('Error loading user profile:', error);
         setUserProfile(null);
       } else {
-        setUserProfile(data);
+        console.log('Raw profile data:', data); // Debug log for raw data
+        
+        // Process avatar URL
+        let avatarUrl = null;
+        if (data.avatar_url) {
+          // Try to fix nested URL issue
+          const cleanAvatarUrl = data.avatar_url.replace(/^https:\/\/.*\/media\//, '');
+          const { data: avatarData } = supabase.storage.from('media').getPublicUrl(cleanAvatarUrl);
+          avatarUrl = avatarData?.publicUrl;
+          console.log('Processed Avatar URL:', avatarUrl);
+        }
+        
+        // Process cover URL
+        let coverUrl = null;
+        if (data.cover_url) {
+          // Try to fix nested URL issue
+          const cleanCoverUrl = data.cover_url.replace(/^https:\/\/.*\/media\//, '');
+          const { data: coverData } = supabase.storage.from('media').getPublicUrl(cleanCoverUrl);
+          coverUrl = coverData?.publicUrl;
+          console.log('Processed Cover URL:', coverUrl);
+        }
+  
+        setUserProfile({
+          ...data,
+          avatar_url: avatarUrl || data.avatar_url, // Fallback to original URL if processing fails
+          cover_url: coverUrl || data.cover_url     // Fallback to original URL if processing fails
+        });
       }
     } catch (error) {
       console.error('Error loading user profile:', error);
@@ -63,118 +89,7 @@ const UserProfileScreen = () => {
     }
   };
 
-  const checkFollowStatus = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) return;
-
-      const { data, error } = await supabase
-        .from('follows')
-        .select('*')
-        .eq('follower_id', user.id)
-        .eq('following_id', userId)
-        .single();
-
-      if (error && error.code !== 'PGRST116') {
-        console.error('Error checking follow status:', error);
-      }
-
-      setIsFollowing(!!data);
-    } catch (error) {
-      console.error('Error checking follow status:', error);
-    }
-  };
-
-  const fetchFollowersCount = async () => {
-    try {
-      const { count, error } = await supabase
-        .from('follows')
-        .select('*', { count: 'exact' })
-        .eq('following_id', userId);
-
-      if (error) {
-        console.error('Error fetching followers count:', error);
-      } else {
-        setFollowersCount(count);
-      }
-    } catch (error) {
-      console.error('Error fetching followers count:', error);
-    }
-  };
-
-  const fetchFollowingCount = async () => {
-    try {
-      const { count, error } = await supabase
-        .from('follows')
-        .select('*', { count: 'exact' })
-        .eq('follower_id', userId);
-
-      if (error) {
-        console.error('Error fetching following count:', error);
-      } else {
-        setFollowingCount(count);
-      }
-    } catch (error) {
-      console.error('Error fetching following count:', error);
-    }
-  };
-
-  const handleFollow = async () => {
-    try {
-      const { data: { user } } = await supabase.auth.getUser();
-      
-      if (!user) {
-        // User not logged in
-        navigation.navigate('Login');
-        return;
-      }
-
-      if (isFollowing) {
-        // Unfollow
-        const { error } = await supabase
-          .from('follows')
-          .delete()
-          .eq('follower_id', user.id)
-          .eq('following_id', userId);
-
-        if (error) throw error;
-        setIsFollowing(false);
-      } else {
-        // Follow
-        const { error } = await supabase
-          .from('follows')
-          .insert({
-            follower_id: user.id,
-            following_id: userId
-            // Remove created_at as it's not in your table structure
-          });
-
-        if (error) {
-          // Check if error is due to unique constraint violation
-          if (error.code === '23505') {
-            console.log('Already following this user');
-            // Refresh follow status to ensure UI is correct
-            checkFollowStatus();
-            return;
-          }
-          throw error;
-        }
-        setIsFollowing(true);
-      }
-    } catch (error) {
-      console.error('Error following/unfollowing user:', error);
-    }
-  };
-
-  const handleMessage = () => {
-    navigation.navigate('MessageScreen', { 
-      recipientId: userId,
-      recipientName: userProfile.username,
-      recipientAvatar: userProfile.avatar_url
-    });
-  };
-  
+  // Add the missing functions
   const renderBio = () => {
     if (!userProfile?.bio) return null;
     
@@ -198,137 +113,273 @@ const UserProfileScreen = () => {
     );
   };
 
-  if (loading) {
-    return (
-      <View style={[styles.container, styles.centered]}>
-        <ActivityIndicator size="large" color="#ff00ff" />
-      </View>
-    );
-  }
-
-  if (!userProfile) {
-    return (
-      <View style={[styles.container, styles.centered]}>
-        <Text style={styles.errorText}>User not found</Text>
-        <TouchableOpacity 
-          style={styles.backButton}
-          onPress={() => navigation.goBack()}
-        >
-          <Text style={styles.backButtonText}>Go Back</Text>
-        </TouchableOpacity>
-      </View>
-    );
-  }
+  // Implement these functions properly
+    const checkFollowStatus = async () => {
+      try {
+        const { data: session } = await supabase.auth.getSession();
+        if (!session?.session?.user) return;
+        
+        const currentUserId = session.session.user.id;
+        
+        // Don't check follow status if viewing own profile
+        if (currentUserId === userId) {
+          setIsFollowing(false);
+          return;
+        }
+        
+        const { data, error } = await supabase
+          .from('follows')
+          .select('*')
+          .eq('follower_id', currentUserId)
+          .eq('following_id', userId)
+          .single();
+          
+        if (error && error.code !== 'PGRST116') {
+          console.error('Error checking follow status:', error);
+        }
+        
+        setIsFollowing(!!data);
+      } catch (error) {
+        console.error('Error checking follow status:', error);
+      }
+    };
+  
+    const fetchFollowersCount = async () => {
+      try {
+        const { count, error } = await supabase
+          .from('follows')
+          .select('*', { count: 'exact', head: true })
+          .eq('following_id', userId);
+          
+        if (error) {
+          console.error('Error fetching followers count:', error);
+        } else {
+          setFollowersCount(count || 0);
+        }
+      } catch (error) {
+        console.error('Error fetching followers count:', error);
+      }
+    };
+  
+    const fetchFollowingCount = async () => {
+      try {
+        const { count, error } = await supabase
+          .from('follows')
+          .select('*', { count: 'exact', head: true })
+          .eq('follower_id', userId);
+          
+        if (error) {
+          console.error('Error fetching following count:', error);
+        } else {
+          setFollowingCount(count || 0);
+        }
+      } catch (error) {
+        console.error('Error fetching following count:', error);
+      }
+    };
+  
+    // Fix the handleFollow function to remove the created_at field
+    const handleFollow = async () => {
+      try {
+        const { data: session } = await supabase.auth.getSession();
+        if (!session?.session?.user) {
+          // Redirect to login if not logged in
+          navigation.navigate('Login');
+          return;
+        }
+        
+        const currentUserId = session.session.user.id;
+        
+        // Don't allow following yourself
+        if (currentUserId === userId) return;
+        
+        if (isFollowing) {
+          // Unfollow
+          const { error } = await supabase
+            .from('follows')
+            .delete()
+            .eq('follower_id', currentUserId)
+            .eq('following_id', userId);
+            
+          if (error) {
+            console.error('Error unfollowing user:', error);
+          } else {
+            setIsFollowing(false);
+            setFollowersCount(prev => Math.max(0, prev - 1));
+          }
+        } else {
+          // Follow - remove created_at field since it doesn't exist in the table
+          const { error } = await supabase
+            .from('follows')
+            .insert({
+              follower_id: currentUserId,
+              following_id: userId
+            });
+            
+          if (error) {
+            console.error('Error following user:', error);
+          } else {
+            setIsFollowing(true);
+            setFollowersCount(prev => prev + 1);
+          }
+        }
+      } catch (error) {
+        console.error('Error handling follow:', error);
+      }
+    };
+  
+    // Fix the handleMessage function to navigate to MessageScreen
+    const handleMessage = () => {
+    // Navigate to MessageScreen instead of showing an alert
+    navigation.navigate('MessageScreen', { 
+      recipientId: userId,
+      recipientName: userProfile?.full_name || userProfile?.username || 'User',
+      recipientAvatar: userProfile?.avatar_url
+    });
+    };
 
   return (
     <View style={styles.container}>
+      {/* Add back button at the top */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color="#ff00ff" />
+          <Ionicons name="arrow-back" size={24} color="white" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{userProfile.username}</Text>
+        <Text style={styles.headerTitle}>Profile</Text>
       </View>
       
-      <ScrollView>
-        <View style={styles.profileSection}>
-          <View style={styles.coverPhotoContainer}>
+      {loading ? (
+        <View style={[styles.container, styles.centered]}>
+          <ActivityIndicator size="large" color="#ff00ff" />
+        </View>
+      ) : userProfile ? (
+        <ScrollView>
+          <View style={styles.profileSection}>
+            {/* Cover Photo */}
+            <View style={styles.coverPhotoContainer}>
+              {console.log('Rendering cover with URL:', userProfile?.cover_url)}
+              <Image
+                style={styles.coverPhoto}
+                source={userProfile?.cover_url 
+                  ? { uri: userProfile.cover_url, cache: 'reload' } 
+                  : require('../../assets/default-cover.png')
+                }
+                onError={(e) => {
+                  console.log('Cover photo error:', e.nativeEvent.error);
+                }}
+              />
+            </View>
+            
+            {console.log('Rendering avatar with URL:', userProfile?.avatar_url)}
             <Image
-              style={styles.coverPhoto}
-              source={{ uri: 'https://via.placeholder.com/800x300' }}
+              style={styles.profileImage}
+              source={userProfile?.avatar_url 
+                ? { uri: userProfile.avatar_url, cache: 'reload' } 
+                : require('../../assets/default-avatar.png')
+              }
+              onError={(e) => {
+                console.log('Avatar photo error:', e.nativeEvent.error);
+              }}
             />
-          </View>
-          <Image
-            style={styles.profileImage}
-            source={{ uri: userProfile.avatar_url || 'https://via.placeholder.com/150' }}
-          />
-          <Text style={styles.name}>{userProfile.full_name || 'No name set'}</Text>
-          <Text style={styles.username}>@{userProfile.username}</Text>
-          <View style={styles.rankBadge}>
-            <Ionicons name="trophy-outline" size={16} color="#FFD700" />
-            <Text style={styles.rankNumber}>
-              {userProfile.rank 
-                ? `Rank #${userProfile.rank} ${userProfile.rank === 1 ? '(First Member!)' : ''}`
-                : 'Rank not assigned'}
-            </Text>
-          </View>
-          {renderBio()}
-          
-          <View style={styles.buttonContainer}>
-            <TouchableOpacity 
-              style={[
-                styles.followButton,
-                isFollowing ? styles.followingButton : {}
-              ]}
-              onPress={handleFollow}
-            >
-              <Text style={styles.followButtonText}>
-                {isFollowing ? 'FOLLOWING' : 'FOLLOW'}
+            <Text style={styles.name}>{userProfile?.full_name || 'No name set'}</Text>
+            <Text style={styles.username}>@{userProfile?.username || 'username'}</Text>
+            <View style={styles.rankBadge}>
+              <Ionicons name="trophy-outline" size={16} color="#FFD700" />
+              <Text style={styles.rankNumber}>
+                {userProfile?.rank 
+                  ? `Rank #${userProfile.rank} ${userProfile.rank === 1 ? '(First Member!)' : ''}`
+                  : 'Rank not assigned'}
               </Text>
+            </View>
+            {renderBio()}
+            
+            <View style={styles.buttonContainer}>
+              <TouchableOpacity 
+                style={[
+                  styles.followButton,
+                  isFollowing ? styles.followingButton : {}
+                ]}
+                onPress={handleFollow}
+              >
+                <Text style={styles.followButtonText}>
+                  {isFollowing ? 'FOLLOWING' : 'FOLLOW'}
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={styles.messageButton}
+                onPress={handleMessage}
+              >
+                <Ionicons name="chatbubble-outline" size={24} color="#ff00ff" />
+              </TouchableOpacity>
+            </View>
+  
+            <View style={styles.statsContainer}>
+              <View style={styles.stat}>
+                <Text style={styles.statNumber}>100</Text>
+                <Text style={styles.statLabel}>Post</Text>
+              </View>
+              <View style={styles.stat}>
+                <Text style={styles.statNumber}>20</Text>
+                <Text style={styles.statLabel}>Shorts</Text>
+              </View>
+              <View style={styles.stat}>
+                <Text style={styles.statNumber}>{followersCount}</Text>
+                <Text style={styles.statLabel}>Followers</Text>
+              </View>
+              <View style={styles.stat}>
+                <Text style={styles.statNumber}>{followingCount}</Text>
+                <Text style={styles.statLabel}>Following</Text>
+              </View>
+            </View>
+          </View>
+  
+          <View style={styles.tabsContainer}>
+            <TouchableOpacity style={styles.tabButton}>
+              <Text style={styles.tabButtonText}>Post</Text>
             </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.messageButton}
-              onPress={handleMessage}
-            >
-              <Ionicons name="chatbubble-outline" size={24} color="#ff00ff" />
+            <TouchableOpacity style={styles.tabButton}>
+              <Text style={styles.tabButtonText}>Shorts</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.tabButton, styles.activeTab]}>
+              <Text style={[styles.tabButtonText, styles.activeTabText]}>Details</Text>
             </TouchableOpacity>
           </View>
-
-          <View style={styles.statsContainer}>
-            <View style={styles.stat}>
-              <Text style={styles.statNumber}>100</Text>
-              <Text style={styles.statLabel}>Post</Text>
+  
+          <View style={styles.detailsSection}>
+            <View style={styles.detailItem}>
+              <Ionicons name="person-outline" size={24} color="#666" />
+              <View style={styles.detailContent}>
+                <Text style={styles.detailTitle}>About me</Text>
+                <Text style={styles.detailText}>
+                  {userProfile?.bio || 'No bio added yet'}
+                </Text>
+              </View>
             </View>
-            <View style={styles.stat}>
-              <Text style={styles.statNumber}>20</Text>
-              <Text style={styles.statLabel}>Shorts</Text>
-            </View>
-            <View style={styles.stat}>
-              <Text style={styles.statNumber}>{followersCount}</Text>
-              <Text style={styles.statLabel}>Followers</Text>
-            </View>
-            <View style={styles.stat}>
-              <Text style={styles.statNumber}>{followingCount}</Text>
-              <Text style={styles.statLabel}>Following</Text>
-            </View>
-          </View>
-        </View>
-
-        <View style={styles.tabsContainer}>
-          <TouchableOpacity style={styles.tabButton}>
-            <Text style={styles.tabButtonText}>Post</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.tabButton}>
-            <Text style={styles.tabButtonText}>Shorts</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={[styles.tabButton, styles.activeTab]}>
-            <Text style={[styles.tabButtonText, styles.activeTabText]}>Details</Text>
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.detailsSection}>
-          <View style={styles.detailItem}>
-            <Ionicons name="person-outline" size={24} color="#666" />
-            <View style={styles.detailContent}>
-              <Text style={styles.detailTitle}>About me</Text>
-              <Text style={styles.detailText}>
-                {userProfile.bio || 'No bio added yet'}
-              </Text>
+  
+            <View style={styles.detailItem}>
+              <Ionicons name="trophy-outline" size={24} color="#FFD700" />
+              <View style={styles.detailContent}>
+                <Text style={styles.detailTitle}>Member Rank</Text>
+                <Text style={styles.detailText}>
+                  {userProfile?.rank 
+                    ? `Member #${userProfile.rank} on Flexx`
+                    : 'Rank not assigned yet'}
+                </Text>
+              </View>
             </View>
           </View>
-
-          <View style={styles.detailItem}>
-            <Ionicons name="trophy-outline" size={24} color="#FFD700" />
-            <View style={styles.detailContent}>
-              <Text style={styles.detailTitle}>Member Rank</Text>
-              <Text style={styles.detailText}>
-                {userProfile.rank 
-                  ? `Member #${userProfile.rank} on Flexx`
-                  : 'Rank not assigned yet'}
-              </Text>
-            </View>
-          </View>
+        </ScrollView>
+      ) : (
+        <View style={[styles.container, styles.centered]}>
+          <Text style={styles.errorText}>Could not load profile</Text>
+          <TouchableOpacity 
+            style={styles.backButton}
+            onPress={() => navigation.goBack()}
+          >
+            <Text style={styles.backButtonText}>Go Back</Text>
+          </TouchableOpacity>
         </View>
-      </ScrollView>
+      )}
     </View>
   );
 };
@@ -540,3 +591,6 @@ const styles = StyleSheet.create({
 });
 
 export default UserProfileScreen;
+
+// DELETE EVERYTHING BELOW THIS LINE
+// Remove the second styles declaration and everything after it

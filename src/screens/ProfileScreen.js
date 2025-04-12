@@ -109,7 +109,7 @@ const AccountSwitcherModal = ({ visible, onClose, loadUserProfile }) => {
                 styles.accountItem, 
                 currentUser === account.id && styles.currentAccountItem
               ]}
-              onPress={async () => {
+              onPress={async () => {  // Make sure this is an async function
                 try {
                   // Only switch if it's not the current account
                   if (currentUser !== account.id) {
@@ -259,6 +259,11 @@ const ProfileScreen = () => {
   const [followingCount, setFollowingCount] = useState(0);
   const navigation = useNavigation();
 
+  // Remove the navigation reset from useFocusEffect
+// Remove the duplicate code block (the one that starts with "if (currentUser !== account.id)")
+  // Keep only the implementation inside the AccountSwitcherModal's onPress handler
+
+  // In the ProfileScreen component, remove the entire standalone code block
   useFocusEffect(
     React.useCallback(() => {
       const loadProfile = async () => {
@@ -270,42 +275,30 @@ const ProfileScreen = () => {
               .select('*')
               .eq('id', user.id)
               .single();
-
+      
             if (data) {
               console.log('Raw Profile Data:', data);
-              
-              // Extract clean file paths
-              const avatarPath = data.avatar_url?.replace(/^.*\/media\//, '') || '';
-              const coverPath = data.cover_url?.replace(/^.*\/media\//, '') || '';
-              
-              // Get updated URLs
-              const { data: avatarData } = supabase.storage
-                .from('media')
-                .getPublicUrl(avatarPath);
-              const { data: coverData } = supabase.storage
-                .from('media')
-                .getPublicUrl(coverPath);
-
-              const avatarUrl = avatarPath ? avatarData.publicUrl : null;
-              const coverUrl = coverPath ? coverData.publicUrl : null;
-
-              setUserProfile({
-                ...data,
-                avatar_url: avatarUrl,
-                cover_url: coverUrl
-              });
+              setUserProfile(data);
             }
           }
         } catch (error) {
           console.error('Error loading profile:', error);
         }
       };
-
+      
       loadProfile();
       fetchFollowersCount();
       fetchFollowingCount();
     }, [])
   );
+
+  // Remove everything between useFocusEffect and loadUserProfile
+  // Delete the entire standalone block that starts with:
+  // if (currentUser !== account.id) {
+  // and ends with:
+  // } catch (error) {
+  // ...
+  // });
 
   const loadUserProfile = async () => {
     try {
