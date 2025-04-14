@@ -6,6 +6,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../config/supabase';
 import { useAccounts } from '../context/AccountContext';
 
+
 // Define AccountSwitcherModal component outside of the main component
 const AccountSwitcherModal = ({ visible, onClose, loadUserProfile }) => {
   const { accounts, addAccount } = useAccounts();
@@ -263,6 +264,12 @@ const ProfileScreen = () => {
   const [showFullBio, setShowFullBio] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
+  // Add new state for followers/following modal
+  const [showFollowersModal, setShowFollowersModal] = useState(false);
+  const [showFollowingModal, setShowFollowingModal] = useState(false);
+  const [followers, setFollowers] = useState([]);
+  const [following, setFollowing] = useState([]);
+  const [loadingConnections, setLoadingConnections] = useState(false);
   const navigation = useNavigation();
 
   // Remove the navigation reset from useFocusEffect
@@ -447,6 +454,181 @@ const ProfileScreen = () => {
     );
   };
 
+  // Add new functions to fetch followers and following details
+  const fetchFollowers = async () => {
+    try {
+      setLoadingConnections(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Get all followers
+      const { data, error } = await supabase
+        .from('follows')
+        .select(`
+          follower_id,
+          profiles!follows_follower_id_fkey (
+            id,
+            username,
+            full_name,
+            avatar_url
+          )
+        `)
+        .eq('following_id', user.id);
+
+      if (error) {
+        console.error('Error fetching followers:', error);
+        return;
+      }
+
+      // Process the data to get clean user objects
+      const followersList = data.map(item => {
+        const profile = item.profiles;
+        // Fix avatar URL if needed
+        let avatarUrl = null;
+        if (profile.avatar_url) {
+          let avatarPath = profile.avatar_url;
+          if (avatarPath.includes('media/media/') || avatarPath.includes('storage/v1/object/public/media/')) {
+            const match = avatarPath.match(/([a-f0-9-]+\/avatar_[0-9]+\.jpg)/);
+            if (match && match[1]) {
+              avatarPath = match[1];
+            } else {
+              avatarPath = avatarPath.split('media/').pop();
+            }
+          }
+          avatarUrl = `https://lckhaysswueoyinhfzyz.supabase.co/storage/v1/object/public/media/${avatarPath}`;
+        }
+        
+        return {
+          ...profile,
+          avatar_url: avatarUrl
+        };
+      });
+
+      setFollowers(followersList);
+      setShowFollowersModal(true);
+    } catch (error) {
+      console.error('Error fetching followers:', error);
+    } finally {
+      setLoadingConnections(false);
+    }
+  };
+
+  const fetchFollowing = async () => {
+    try {
+      setLoadingConnections(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Get all following
+      const { data, error } = await supabase
+        .from('follows')
+        .select(`
+          following_id,
+          profiles!follows_following_id_fkey (
+            id,
+            username,
+            full_name,
+            avatar_url
+          )
+        `)
+        .eq('follower_id', user.id);
+
+      if (error) {
+        console.error('Error fetching following:', error);
+        return;
+      }
+
+      // Process the data to get clean user objects
+      const followingList = data.map(item => {
+        const profile = item.profiles;
+        // Fix avatar URL if needed
+        let avatarUrl = null;
+        if (profile.avatar_url) {
+          let avatarPath = profile.avatar_url;
+          if (avatarPath.includes('media/media/') || avatarPath.includes('storage/v1/object/public/media/')) {
+            const match = avatarPath.match(/([a-f0-9-]+\/avatar_[0-9]+\.jpg)/);
+            if (match && match[1]) {
+              avatarPath = match[1];
+            } else {
+              avatarPath = avatarPath.split('media/').pop();
+            }
+          }
+          avatarUrl = `https://lckhaysswueoyinhfzyz.supabase.co/storage/v1/object/public/media/${avatarPath}`;
+        }
+        
+        return {
+          ...profile,
+          avatar_url: avatarUrl
+        };
+      });
+
+      setFollowing(followingList);
+      setShowFollowingModal(true);
+    } catch (error) {
+      console.error('Error fetching following:', error);
+    } finally {
+      setLoadingConnections(false);
+    }
+  };
+
+  // Add ConnectionsModal component
+  const ConnectionsModal = ({ visible, onClose, title, connections, isLoading }) => {
+    return (
+      <Modal
+        visible={visible}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={onClose}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>{title}</Text>
+            
+            {isLoading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#ff00ff" />
+              </View>
+            ) : connections.length > 0 ? (
+              <ScrollView style={styles.connectionsList}>
+                {connections.map((connection, index) => (
+                  <TouchableOpacity 
+                    key={index}
+                    style={styles.connectionItem}
+                    onPress={() => {
+                      onClose();
+                      navigation.navigate('UserProfile', { userId: connection.id });
+                    }}
+                  >
+                    <Image 
+                      source={{ uri: connection.avatar_url || 'https://via.placeholder.com/150' }}
+                      style={styles.connectionAvatar}
+                    />
+                    <View style={styles.connectionInfo}>
+                      <Text style={styles.connectionName}>{connection.full_name || 'No name'}</Text>
+                      <Text style={styles.connectionUsername}>@{connection.username || 'username'}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            ) : (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="people-outline" size={50} color="#666" />
+                <Text style={styles.emptyText}>No {title.toLowerCase()} yet</Text>
+              </View>
+            )}
+
+            <TouchableOpacity 
+              style={styles.closeButton}
+              onPress={onClose}
+            >
+              <Text style={styles.closeText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    );
+  };
+
   return (
     <View style={styles.container}>
       <Sidebar 
@@ -467,6 +649,23 @@ const ProfileScreen = () => {
         visible={isAccountSwitcherVisible}
         onClose={() => setAccountSwitcherVisible(false)}
         loadUserProfile={loadUserProfile}
+      />
+      
+      {/* Add the new modals */}
+      <ConnectionsModal
+        visible={showFollowersModal}
+        onClose={() => setShowFollowersModal(false)}
+        title="Followers"
+        connections={followers}
+        isLoading={loadingConnections}
+      />
+      
+      <ConnectionsModal
+        visible={showFollowingModal}
+        onClose={() => setShowFollowingModal(false)}
+        title="Following"
+        connections={following}
+        isLoading={loadingConnections}
       />
       
       <ScrollView>
@@ -846,6 +1045,51 @@ const styles = StyleSheet.create({
   currentAccountBadge: {
     marginLeft: 'auto',
   },
-});
 
+
+connectionsList: {
+  maxHeight: 400,
+},
+connectionItem: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  padding: 15,
+  borderBottomWidth: 1,
+  borderBottomColor: '#333',
+},
+connectionAvatar: {
+  width: 50,
+  height: 50,
+  borderRadius: 25,
+  marginRight: 15,
+  borderWidth: 1,
+  borderColor: '#ff00ff',
+},
+connectionInfo: {
+  flex: 1,
+},
+connectionName: {
+  color: 'white',
+  fontSize: 16,
+  fontWeight: '500',
+},
+connectionUsername: {
+  color: '#999',
+  fontSize: 14,
+},
+emptyContainer: {
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: 40,
+},
+emptyText: {
+  color: '#666',
+  fontSize: 16,
+  marginTop: 10,
+},
+loadingContainer: {
+  padding: 40,
+  alignItems: 'center',
+}
+});
 export default ProfileScreen;
