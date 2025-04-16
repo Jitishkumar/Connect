@@ -130,24 +130,75 @@ const ConfessionScreen = () => {
     });
     loadConfessions(location.place_id);
   };
+  
+  // Add a refresh function to reload confessions
+  const refreshConfessions = () => {
+    if (selectedLocation) {
+      loadConfessions(selectedLocation.place_id);
+    }
+  };
 
   // Mode state is already declared at the top of the component
   
   const loadConfessions = async (locationId) => {
     setLoading(true);
     try {
-      // First get confessions
+      // First get confessions - disable caching to ensure we get the latest data
       const { data: confessionsData, error: confessionsError } = await supabase
         .from('confessions')
         .select('*')
         .eq('location_id', locationId)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .abortSignal(new AbortController().signal); // This forces a fresh network request
         
       if (confessionsError) throw confessionsError;
       
+      console.log('Raw confessions data:', confessionsData); // Debug log for raw data
+      
+      // Process confessions data to ensure media is properly parsed
+      const processedConfessions = (confessionsData || []).map(confession => {
+        // Ensure media is properly parsed if it's a string
+        let processedMedia = confession.media;
+        
+        // If media is a string, try to parse it as JSON
+        if (typeof confession.media === 'string') {
+          try {
+            processedMedia = JSON.parse(confession.media);
+          } catch (e) {
+            console.error('Error parsing media JSON:', e);
+            processedMedia = []; // Default to empty array if parsing fails
+          }
+        }
+        
+        // If media is null or undefined, set it to an empty array
+        if (!processedMedia) {
+          processedMedia = [];
+        }
+        
+        // Ensure each media item has the expected structure
+        const validatedMedia = Array.isArray(processedMedia) ? 
+          processedMedia.map(item => {
+            // If the item is already in the correct format, return it
+            if (item && typeof item === 'object' && item.url) {
+              return item;
+            }
+            // If it's just a string URL, convert it to the expected format
+            if (typeof item === 'string') {
+              return { url: item, type: 'image' };
+            }
+            // Skip invalid items
+            return null;
+          }).filter(Boolean) : [];
+        
+        return {
+          ...confession,
+          media: validatedMedia
+        };
+      });
+      
       // For non-anonymous confessions, fetch user profiles
       const confessionsWithProfiles = await Promise.all(
-        (confessionsData || []).map(async (confession) => {
+        processedConfessions.map(async (confession) => {
           if (!confession.is_anonymous && confession.user_id) {
             // Fetch user profile
             const { data: profileData } = await supabase
@@ -168,6 +219,7 @@ const ConfessionScreen = () => {
         })
       );
       
+      console.log('Loaded confessions with media:', confessionsWithProfiles.map(c => ({ id: c.id, media: c.media })));
       setConfessions(confessionsWithProfiles || []);
     } catch (error) {
       console.error('Error loading confessions:', error);
@@ -274,15 +326,18 @@ const ConfessionScreen = () => {
       }
     }
     
+    // Ensure media is properly formatted as a JSON string to avoid parsing issues
     const confessionData = {
       user_id: remainAnonymous ? null : user.id,
       location_id: selectedLocation.place_id,
       location_name: selectedLocation.display_name,
       content: newConfession.trim(),
-      media: mediaUrls,
+      media: mediaUrls, // This is already an array of objects with url and type
       is_anonymous: remainAnonymous,
       created_at: new Date().toISOString()
     };
+    
+    console.log('Saving confession with media:', mediaUrls);
 
     const { error: confessionError } = await supabase
       .from('confessions')
@@ -322,6 +377,52 @@ const ConfessionScreen = () => {
           minute: '2-digit'
         })
       : '';
+    
+    // Ensure media is properly parsed and formatted
+    let mediaArray = [];
+    if (item.media) {
+      // If media is a string, try to parse it
+      if (typeof item.media === 'string') {
+        try {
+          mediaArray = JSON.parse(item.media);
+        } catch (e) {
+          console.error('Error parsing media in renderConfessionItem:', e);
+          mediaArray = [];
+        }
+      } else if (Array.isArray(item.media)) {
+        // If it's already an array, use it directly
+        mediaArray = item.media;
+      }
+      
+      // Ensure each media item has the expected structure
+      mediaArray = mediaArray.map(mediaItem => {
+        // If the item is already in the correct format, return it
+        if (mediaItem && typeof mediaItem === 'object' && mediaItem.url) {
+          return mediaItem;
+        }
+        // If it's just a string URL, convert it to the expected format
+        if (typeof mediaItem === 'string') {
+          return { url: mediaItem, type: 'image' };
+        }
+        // Skip invalid items
+        return null;
+      }).filter(Boolean);
+    }
+    
+    // Add more detailed logging to debug media issues
+    console.log('Rendering confession with media:', {
+      id: item.id, 
+      mediaCount: mediaArray.length,
+      mediaItems: mediaArray.map(m => m.url)
+    });
+    
+    // Force refresh image cache by adding a timestamp parameter
+    mediaArray = mediaArray.map(mediaItem => ({
+      ...mediaItem,
+      url: mediaItem.url.includes('?') 
+        ? mediaItem.url 
+        : `${mediaItem.url}?t=${new Date().getTime()}`
+    }));
       
     return (
       <View style={styles.confessionCard}>
@@ -351,9 +452,9 @@ const ConfessionScreen = () => {
         
         <Text style={styles.confessionContent}>{item.content}</Text>
         
-        {item.media && item.media.length > 0 && (
+        {mediaArray && mediaArray.length > 0 && (
           <ScrollView horizontal style={styles.mediaContainer}>
-            {item.media.map((mediaItem, index) => (
+            {mediaArray.map((mediaItem, index) => (
               <Image 
                 key={index}
                 source={{ uri: mediaItem.url }}
@@ -515,6 +616,8 @@ const ConfessionScreen = () => {
                 keyExtractor={(item) => item.id.toString()}
                 renderItem={renderConfessionItem}
                 contentContainerStyle={styles.confessionsList}
+                refreshing={loading}
+                onRefresh={refreshConfessions}
               />
             ) : (
               <View style={styles.emptyContainer}>
@@ -532,12 +635,21 @@ const ConfessionScreen = () => {
           )}
           
           {selectedLocation && (
-            <TouchableOpacity 
-              style={styles.addButton}
-              onPress={() => setShowNewConfessionModal(true)}
-            >
-              <Ionicons name="add" size={30} color="#fff" />
-            </TouchableOpacity>
+            <>
+              <TouchableOpacity 
+                style={styles.addButton}
+                onPress={() => setShowNewConfessionModal(true)}
+              >
+                <Ionicons name="add" size={30} color="#fff" />
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.addButton, styles.refreshButton]}
+                onPress={refreshConfessions}
+              >
+                <Ionicons name="refresh" size={24} color="#fff" />
+              </TouchableOpacity>
+            </>
           )}
           
           <Modal
@@ -844,6 +956,10 @@ const styles = StyleSheet.create({
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.3,
     shadowRadius: 3,
+  },
+  refreshButton: {
+    bottom: 90, // Position above the add button
+    backgroundColor: '#3399ff',
   },
   modalContainer: {
     flex: 1,
