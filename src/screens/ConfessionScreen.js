@@ -302,14 +302,19 @@ const ConfessionScreen = () => {
             style={styles.avatar}
           />
           <View style={styles.userInfoContainer}>
-            <Text style={[
-              styles.username,
-              !item.is_anonymous && { color: '#ff00ff' }
-            ]}>
-              {item.is_anonymous ? 'Anonymous' : (item.username || 'User')}
-            </Text>
-            <Text style={styles.dateText}>{formattedDate}</Text>
+            <TouchableOpacity 
+              onPress={() => {
+                if (item.user_id) {
+                  navigation.navigate('UserProfile', { userId: item.user_id });
+                }
+              }}
+            >
+              <Text style={[styles.username, { color: '#ff00ff' }]}>
+                {item.username || 'User'}
+              </Text>
+            </TouchableOpacity>
           </View>
+          <Text style={styles.dateText}>{formattedDate}</Text>
         </View>
         
         <Text style={styles.confessionContent}>{item.content}</Text>
