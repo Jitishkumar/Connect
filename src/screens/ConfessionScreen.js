@@ -737,6 +737,11 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: 'bold',
   },
+  dateText: {
+    color: '#FFFF00',
+    fontSize: 12,
+    marginLeft: 'auto',
+  },
   confessionContent: {
     color: '#fff',
     fontSize: 16,
