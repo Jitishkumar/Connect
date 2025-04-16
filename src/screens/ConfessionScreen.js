@@ -11,14 +11,17 @@ import {
   Modal,
   ScrollView,
   Switch,
-  ActivityIndicator
+  ActivityIndicator,
+  Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import * as ImagePicker from 'expo-image-picker';
 import { WebView } from 'react-native-webview';
+import { decode } from 'base64-arraybuffer';
 import { supabase } from '../config/supabase';
 import * as Location from 'expo-location';
+import * as FileSystem from 'expo-file-system';
 
 const ConfessionScreen = () => {
   const navigation = useNavigation();
@@ -173,11 +176,11 @@ const ConfessionScreen = () => {
     }
   };
   
-  // Update pickImage function to use new MediaType
+  // Update pickImage function to use Images only (not video)  
   const pickImage = async () => {
   try {
     const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.All,
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [4, 3],
       quality: 1,
@@ -185,21 +188,20 @@ const ConfessionScreen = () => {
 
     if (!result.canceled) {
       const asset = result.assets[0];
-      const fileType = asset.type === 'video' ? 'video/mp4' : 'image/jpeg';
       
       setMedia([...media, { 
         uri: asset.uri,
-        type: fileType,
-        name: `${Math.random().toString(36).substring(2)}.${fileType === 'video/mp4' ? 'mp4' : 'jpg'}`
+        type: 'image/jpeg',
+        name: `${Math.random().toString(36).substring(2)}.jpg`
       }]);
     }
   } catch (error) {
-    console.error('Error picking media:', error);
-    alert('Failed to select media. Please try again.');
+    console.error('Error picking image:', error);
+    alert('Failed to select image. Please try again.');
   }
 };
   
-  // Update postConfession function's media upload
+  // Updated postConfession function with improved media upload handling
   const postConfession = async () => {
   if (!newConfession.trim() && media.length === 0) return;
   
@@ -214,30 +216,60 @@ const ConfessionScreen = () => {
     for (const item of media) {
       if (item.uri) {
         try {
-          const response = await fetch(item.uri);
-          const blob = await response.blob();
           const filePath = `confessions/${item.name}`;
           
-          const { error: uploadError } = await supabase.storage
-            .from('media')
-            .upload(filePath, blob, {
-              contentType: item.type,
-              cacheControl: '3600'
+          // Handle file reading based on platform
+          if (Platform.OS === 'web') {
+            // For web platform
+            const response = await fetch(item.uri);
+            const blob = await response.blob();
+            
+            const { error: uploadError } = await supabase.storage
+              .from('media')
+              .upload(filePath, blob, {
+                contentType: item.type,
+                cacheControl: '3600',
+                upsert: true
+              });
+              
+            if (uploadError) throw uploadError;
+          } else {
+            // For native platforms (iOS/Android)
+            // First check if the file exists
+            const fileInfo = await FileSystem.getInfoAsync(item.uri);
+            if (!fileInfo.exists) {
+              throw new Error('File does not exist');
+            }
+            
+            // For iOS/Android, we need to read the file and convert it to a blob
+            const base64 = await FileSystem.readAsStringAsync(item.uri, {
+              encoding: FileSystem.EncodingType.Base64,
             });
             
-          if (uploadError) throw uploadError;
+            // Upload using the base64 data
+            const { error: uploadError } = await supabase.storage
+              .from('media')
+              .upload(filePath, decode(base64), {
+                contentType: item.type,
+                cacheControl: '3600',
+                upsert: true
+              });
+              
+            if (uploadError) throw uploadError;
+          }
           
-          const { data: { publicUrl } } = supabase.storage
+          // Get the public URL
+          const { data } = supabase.storage
             .from('media')
             .getPublicUrl(filePath);
             
           mediaUrls.push({
-            url: publicUrl,
-            type: item.type
+            url: data.publicUrl,
+            type: 'image'
           });
         } catch (mediaError) {
           console.error('Media upload error:', mediaError);
-          throw new Error('Failed to upload media');
+          throw new Error('Failed to upload media: ' + (mediaError.message || 'Unknown error'));
         }
       }
     }
@@ -322,17 +354,11 @@ const ConfessionScreen = () => {
         {item.media && item.media.length > 0 && (
           <ScrollView horizontal style={styles.mediaContainer}>
             {item.media.map((mediaItem, index) => (
-              mediaItem.type === 'image' ? (
-                <Image 
-                  key={index}
-                  source={{ uri: mediaItem.url }}
-                  style={styles.mediaItem}
-                />
-              ) : (
-                <View key={index} style={styles.videoContainer}>
-                  <Ionicons name="play-circle" size={40} color="#fff" />
-                </View>
-              )
+              <Image 
+                key={index}
+                source={{ uri: mediaItem.url }}
+                style={styles.mediaItem}
+              />
             ))}
           </ScrollView>
         )}
@@ -557,9 +583,7 @@ const ConfessionScreen = () => {
                 <View style={styles.mediaButtons}>
                   <TouchableOpacity style={styles.mediaButton} onPress={pickImage}>
                     <Ionicons name="image" size={24} color="#ff00ff" />
-                  </TouchableOpacity>
-                  <TouchableOpacity style={styles.mediaButton} onPress={pickImage}>
-                    <Ionicons name="videocam" size={24} color="#ff00ff" />
+                    <Text style={styles.mediaButtonText}>Add Image</Text>
                   </TouchableOpacity>
                 </View>
                 
@@ -882,6 +906,13 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     padding: 10,
     marginRight: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  mediaButtonText: {
+    color: '#ff00ff',
+    marginLeft: 8,
+    fontSize: 14,
   },
   anonymousOption: {
     flexDirection: 'row',
