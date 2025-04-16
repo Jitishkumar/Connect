@@ -12,7 +12,8 @@ import {
   ScrollView,
   Switch,
   ActivityIndicator,
-  Platform
+  Platform,
+  Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
@@ -149,6 +150,7 @@ const ConfessionScreen = () => {
         .select('*')
         .eq('location_id', locationId)
         .order('created_at', { ascending: false })
+        .limit(50) // Limit to latest 50 confessions
         .abortSignal(new AbortController().signal); // This forces a fresh network request
         
       if (confessionsError) throw confessionsError;
@@ -365,8 +367,34 @@ const ConfessionScreen = () => {
     }
   };
 
+  const deleteConfession = async (confessionId) => {
+    try {
+      const { error } = await supabase
+        .from('confessions')
+        .delete()
+        .eq('id', confessionId);
+
+      if (error) throw error;
+      refreshConfessions();
+    } catch (error) {
+      console.error('Error deleting confession:', error);
+      alert('Failed to delete confession. Please try again.');
+    }
+  };
+
+  // Move currentUser state to component level
+  const [currentUser, setCurrentUser] = useState(null);
+    
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setCurrentUser(user);
+    };
+    getCurrentUser();
+  }, []);
+
   const renderConfessionItem = ({ item }) => {
-    // Format the date
+    const isCurrentUserConfession = currentUser && item.user_id === currentUser.id;
     const formattedDate = item.created_at 
       ? new Date(item.created_at).toLocaleDateString('en-US', {
           month: 'short',
@@ -378,52 +406,6 @@ const ConfessionScreen = () => {
         })
       : '';
     
-    // Ensure media is properly parsed and formatted
-    let mediaArray = [];
-    if (item.media) {
-      // If media is a string, try to parse it
-      if (typeof item.media === 'string') {
-        try {
-          mediaArray = JSON.parse(item.media);
-        } catch (e) {
-          console.error('Error parsing media in renderConfessionItem:', e);
-          mediaArray = [];
-        }
-      } else if (Array.isArray(item.media)) {
-        // If it's already an array, use it directly
-        mediaArray = item.media;
-      }
-      
-      // Ensure each media item has the expected structure
-      mediaArray = mediaArray.map(mediaItem => {
-        // If the item is already in the correct format, return it
-        if (mediaItem && typeof mediaItem === 'object' && mediaItem.url) {
-          return mediaItem;
-        }
-        // If it's just a string URL, convert it to the expected format
-        if (typeof mediaItem === 'string') {
-          return { url: mediaItem, type: 'image' };
-        }
-        // Skip invalid items
-        return null;
-      }).filter(Boolean);
-    }
-    
-    // Add more detailed logging to debug media issues
-    console.log('Rendering confession with media:', {
-      id: item.id, 
-      mediaCount: mediaArray.length,
-      mediaItems: mediaArray.map(m => m.url)
-    });
-    
-    // Force refresh image cache by adding a timestamp parameter
-    mediaArray = mediaArray.map(mediaItem => ({
-      ...mediaItem,
-      url: mediaItem.url.includes('?') 
-        ? mediaItem.url 
-        : `${mediaItem.url}?t=${new Date().getTime()}`
-    }));
-      
     return (
       <View style={styles.confessionCard}>
         <View style={styles.confessionHeader}>
@@ -437,30 +419,64 @@ const ConfessionScreen = () => {
           <View style={styles.userInfoContainer}>
             <TouchableOpacity 
               onPress={() => {
-                if (item.user_id) {
+                if (!item.is_anonymous && item.user_id) {
                   navigation.navigate('UserProfile', { userId: item.user_id });
                 }
               }}
             >
               <Text style={[styles.username, { color: '#ff00ff' }]}>
-                {item.username || 'User'}
+                {item.is_anonymous ? 'Anonymous' : (item.username || 'User')}
               </Text>
             </TouchableOpacity>
           </View>
           <Text style={styles.dateText}>{formattedDate}</Text>
+          {isCurrentUserConfession && (
+            <TouchableOpacity
+              style={styles.menuButton}
+              onPress={() => {
+                Alert.alert(
+                  'Confession Options',
+                  'What would you like to do?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { 
+                      text: 'Delete', 
+                      onPress: () => {
+                        Alert.alert(
+                          'Delete Confession',
+                          'Are you sure you want to delete this confession?',
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            { 
+                              text: 'Delete', 
+                              onPress: () => deleteConfession(item.id),
+                              style: 'destructive' 
+                            }
+                          ]
+                        );
+                      },
+                      style: 'destructive'
+                    }
+                  ]
+                );
+              }}
+            >
+              <Ionicons name="ellipsis-vertical" size={20} color="#ff00ff" />
+            </TouchableOpacity>
+          )}
         </View>
         
         <Text style={styles.confessionContent}>{item.content}</Text>
         
-        {mediaArray && mediaArray.length > 0 && (
+        {item.media && item.media.length > 0 && (
           <ScrollView horizontal style={styles.mediaContainer}>
-            {mediaArray.map((mediaItem, index) => (
+            {item.media.map((mediaItem, index) => (
               <Image 
                 key={index}
                 source={{ uri: mediaItem.url }}
                 style={styles.mediaItem}
               />
-            ))}
+            ))}          
           </ScrollView>
         )}
         
@@ -725,6 +741,10 @@ const ConfessionScreen = () => {
 };
 
 const styles = StyleSheet.create({
+  menuButton: {
+    padding: 8,
+    borderRadius: 15,
+  },
   modeContainer: {
     flexDirection: 'row',
     justifyContent: 'space-around',
@@ -862,6 +882,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 10,
+  },
+  deleteButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: '#FFF0F0',
   },
   avatar: {
     width: 40,
