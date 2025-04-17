@@ -331,6 +331,8 @@ const ConfessionScreen = () => {
     // Ensure media is properly formatted as a JSON string to avoid parsing issues
     const confessionData = {
       user_id: remainAnonymous ? null : user.id,
+      // Store the creator's ID in a separate field for anonymous posts
+      creator_id: user.id, // Always store the actual creator ID regardless of anonymity
       location_id: selectedLocation.place_id,
       location_name: selectedLocation.display_name,
       content: newConfession.trim(),
@@ -394,7 +396,11 @@ const ConfessionScreen = () => {
   }, []);
 
   const renderConfessionItem = ({ item }) => {
-    const isCurrentUserConfession = currentUser && item.user_id === currentUser.id;
+    // Check if current user is the creator of the confession, even if it's anonymous
+    const isCurrentUserConfession = currentUser && (
+      (item.user_id === currentUser.id) || // For non-anonymous posts
+      (item.is_anonymous && item.creator_id === currentUser.id) // For anonymous posts
+    );
     const formattedDate = item.created_at 
       ? new Date(item.created_at).toLocaleDateString('en-US', {
           month: 'short',
