@@ -1,0 +1,1095 @@
+
+import React, { useState, useEffect } from 'react';
+import { 
+  View, 
+  Text, 
+  StyleSheet, 
+  TouchableOpacity, 
+  TextInput, 
+  FlatList, 
+  Image, 
+  Modal,
+  ScrollView,
+  Switch,
+  ActivityIndicator,
+  Platform,
+  Alert
+} from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import * as ImagePicker from 'expo-image-picker';
+import { WebView } from 'react-native-webview';
+import { decode } from 'base64-arraybuffer';
+import { supabase } from '../config/supabase';
+import * as Location from 'expo-location';
+import * as FileSystem from 'expo-file-system';
+
+const ConfessionScreen = () => {
+  const navigation = useNavigation();
+  const [mode, setMode] = useState('select'); // 'select', 'write', or 'view'
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResults, setSearchResults] = useState([]);
+  const [selectedLocation, setSelectedLocation] = useState(null);
+  const [showMap, setShowMap] = useState(false);
+  const [confessions, setConfessions] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [showNewConfessionModal, setShowNewConfessionModal] = useState(false);
+  const [newConfession, setNewConfession] = useState('');
+  const [media, setMedia] = useState([]);
+  const [remainAnonymous, setRemainAnonymous] = useState(true);
+  const [mapRegion, setMapRegion] = useState({
+    latitude: 37.78825,
+    longitude: -122.4324,
+  });
+  const [userLocation, setUserLocation] = useState(null);
+  const [locationPermission, setLocationPermission] = useState(null);
+  const [searchError, setSearchError] = useState(null);
+
+  // Request location permission and get current location
+  useEffect(() => {
+    (async () => {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      setLocationPermission(status);
+      
+      if (status === 'granted') {
+        const location = await Location.getCurrentPositionAsync({});
+        setUserLocation(location);
+        setMapRegion({
+          latitude: location.coords.latitude,
+          longitude: location.coords.longitude,
+        });
+      }
+    })();
+  }, []);
+
+  const getMapUrl = () => {
+    const lat = mapRegion.latitude;
+    const lon = mapRegion.longitude;
+    let url = `https://www.openstreetmap.org/export/embed.html?bbox=${lon-0.05},${lat-0.05},${lon+0.05},${lat+0.05}&layer=mapnik`;
+    
+    if (selectedLocation) {
+      url += `&marker=${selectedLocation.lat},${selectedLocation.lon}`;
+    }
+    if (userLocation) {
+      url += `&marker=${userLocation.coords.latitude},${userLocation.coords.longitude}`;
+    }
+    return url;
+  };
+
+  const searchLocations = async (query) => {
+    if (query.length < 3) return;
+    
+    setSearchError(null);
+    try {
+      let searchUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=10`;
+      
+      if (userLocation) {
+        searchUrl += `&viewbox=${userLocation.coords.longitude-0.1},${userLocation.coords.latitude-0.1},${userLocation.coords.longitude+0.1},${userLocation.coords.latitude+0.1}`;
+      }
+      
+      const response = await fetch(searchUrl, {
+        headers: {
+          'Accept': 'application/json',
+          'User-Agent': 'FlexxApp/1.0'
+        }
+      });
+      
+      if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
+      
+      const data = await response.json();
+      setSearchResults(data);
+    } catch (error) {
+      console.error('Error searching locations:', error);
+      setSearchError(error.message);
+      setSearchResults([]);
+      
+      if (__DEV__) {
+        setSearchResults([
+          {
+            place_id: '1',
+            display_name: 'New York, USA',
+            lat: '40.7128',
+            lon: '-74.0060'
+          },
+          {
+            place_id: '2',
+            display_name: 'London, UK',
+            lat: '51.5074',
+            lon: '-0.1278'
+          }
+        ]);
+      }
+    }
+  };
+
+  const selectLocation = (location) => {
+    setSelectedLocation(location);
+    setSearchResults([]);
+    setMapRegion({
+      latitude: parseFloat(location.lat),
+      longitude: parseFloat(location.lon),
+    });
+    loadConfessions(location.place_id);
+  };
+  
+  // Add a refresh function to reload confessions
+  const refreshConfessions = () => {
+    if (selectedLocation) {
+      loadConfessions(selectedLocation.place_id);
+    }
+  };
+
+  // Mode state is already declared at the top of the component
+  
+  const loadConfessions = async (locationId) => {
+    setLoading(true);
+    try {
+      // First get confessions - disable caching to ensure we get the latest data
+      const { data: confessionsData, error: confessionsError } = await supabase
+        .from('confessions')
+        .select('*')
+        .eq('location_id', locationId)
+        .order('created_at', { ascending: false })
+        .limit(50) // Limit to latest 50 confessions
+        .abortSignal(new AbortController().signal); // This forces a fresh network request
+        
+      if (confessionsError) throw confessionsError;
+      
+      console.log('Raw confessions data:', confessionsData); // Debug log for raw data
+      
+      // Process confessions data to ensure media is properly parsed
+      const processedConfessions = (confessionsData || []).map(confession => {
+        // Ensure media is properly parsed if it's a string
+        let processedMedia = confession.media;
+        
+        // If media is a string, try to parse it as JSON
+        if (typeof confession.media === 'string') {
+          try {
+            processedMedia = JSON.parse(confession.media);
+          } catch (e) {
+            console.error('Error parsing media JSON:', e);
+            processedMedia = []; // Default to empty array if parsing fails
+          }
+        }
+        
+        // If media is null or undefined, set it to an empty array
+        if (!processedMedia) {
+          processedMedia = [];
+        }
+        
+        // Ensure each media item has the expected structure
+        const validatedMedia = Array.isArray(processedMedia) ? 
+          processedMedia.map(item => {
+            // If the item is already in the correct format, return it
+            if (item && typeof item === 'object' && item.url) {
+              return item;
+            }
+            // If it's just a string URL, convert it to the expected format
+            if (typeof item === 'string') {
+              return { url: item, type: 'image' };
+            }
+            // Skip invalid items
+            return null;
+          }).filter(Boolean) : [];
+        
+        return {
+          ...confession,
+          media: validatedMedia
+        };
+      });
+      
+      // For non-anonymous confessions, fetch user profiles
+      const confessionsWithProfiles = await Promise.all(
+        processedConfessions.map(async (confession) => {
+          if (!confession.is_anonymous && confession.user_id) {
+            // Fetch user profile
+            const { data: profileData } = await supabase
+              .from('profiles')
+              .select('username, full_name, avatar_url')
+              .eq('id', confession.user_id)
+              .single();
+              
+            if (profileData) {
+              return {
+                ...confession,
+                username: profileData.username || profileData.full_name,
+                avatar_url: profileData.avatar_url
+              };
+            }
+          }
+          return confession;
+        })
+      );
+      
+      console.log('Loaded confessions with media:', confessionsWithProfiles.map(c => ({ id: c.id, media: c.media })));
+      setConfessions(confessionsWithProfiles || []);
+    } catch (error) {
+      console.error('Error loading confessions:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  // Update pickImage function to use Images only (not video)  
+  const pickImage = async () => {
+  try {
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 1,
+    });
+
+    if (!result.canceled) {
+      const asset = result.assets[0];
+      
+      setMedia([...media, { 
+        uri: asset.uri,
+        type: 'image/jpeg',
+        name: `${Math.random().toString(36).substring(2)}.jpg`
+      }]);
+    }
+  } catch (error) {
+    console.error('Error picking image:', error);
+    alert('Failed to select image. Please try again.');
+  }
+};
+  
+  // Updated postConfession function with improved media upload handling
+  const postConfession = async () => {
+  if (!newConfession.trim() && media.length === 0) return;
+  
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) {
+      alert('You must be logged in to post a confession');
+      return;
+    }
+    
+    const mediaUrls = [];
+    for (const item of media) {
+      if (item.uri) {
+        try {
+          const filePath = `confessions/${item.name}`;
+          
+          // Handle file reading based on platform
+          if (Platform.OS === 'web') {
+            // For web platform
+            const response = await fetch(item.uri);
+            const blob = await response.blob();
+            
+            const { error: uploadError } = await supabase.storage
+              .from('media')
+              .upload(filePath, blob, {
+                contentType: item.type,
+                cacheControl: '3600',
+                upsert: true
+              });
+              
+            if (uploadError) throw uploadError;
+          } else {
+            // For native platforms (iOS/Android)
+            // First check if the file exists
+            const fileInfo = await FileSystem.getInfoAsync(item.uri);
+            if (!fileInfo.exists) {
+              throw new Error('File does not exist');
+            }
+            
+            // For iOS/Android, we need to read the file and convert it to a blob
+            const base64 = await FileSystem.readAsStringAsync(item.uri, {
+              encoding: FileSystem.EncodingType.Base64,
+            });
+            
+            // Upload using the base64 data
+            const { error: uploadError } = await supabase.storage
+              .from('media')
+              .upload(filePath, decode(base64), {
+                contentType: item.type,
+                cacheControl: '3600',
+                upsert: true
+              });
+              
+            if (uploadError) throw uploadError;
+          }
+          
+          // Get the public URL
+          const { data } = supabase.storage
+            .from('media')
+            .getPublicUrl(filePath);
+            
+          mediaUrls.push({
+            url: data.publicUrl,
+            type: 'image'
+          });
+        } catch (mediaError) {
+          console.error('Media upload error:', mediaError);
+          throw new Error('Failed to upload media: ' + (mediaError.message || 'Unknown error'));
+        }
+      }
+    }
+    
+    // Ensure media is properly formatted as a JSON string to avoid parsing issues
+    const confessionData = {
+      user_id: remainAnonymous ? null : user.id,
+      // Store the creator's ID in a separate field for anonymous posts
+      creator_id: user.id, // Always store the actual creator ID regardless of anonymity
+      location_id: selectedLocation.place_id,
+      location_name: selectedLocation.display_name,
+      content: newConfession.trim(),
+      media: mediaUrls, // This is already an array of objects with url and type
+      is_anonymous: remainAnonymous,
+      created_at: new Date().toISOString()
+    };
+    
+    console.log('Saving confession with media:', mediaUrls);
+
+    const { error: confessionError } = await supabase
+      .from('confessions')
+      .insert([confessionData]);
+      
+    if (confessionError) throw confessionError;
+    
+    setNewConfession('');
+    setMedia([]);
+    setShowNewConfessionModal(false);
+    loadConfessions(selectedLocation.place_id);
+    
+  } catch (error) {
+    console.error('Error posting confession:', error);
+    alert(error.message || 'Failed to post confession. Please try again.');
+  }
+};
+
+  const goToUserLocation = () => {
+    if (userLocation) {
+      setMapRegion({
+        latitude: userLocation.coords.latitude,
+        longitude: userLocation.coords.longitude,
+      });
+    }
+  };
+
+  const deleteConfession = async (confessionId) => {
+    try {
+      const { error } = await supabase
+        .from('confessions')
+        .delete()
+        .eq('id', confessionId);
+
+      if (error) throw error;
+      refreshConfessions();
+    } catch (error) {
+      console.error('Error deleting confession:', error);
+      alert('Failed to delete confession. Please try again.');
+    }
+  };
+
+  // Move currentUser state to component level
+  const [currentUser, setCurrentUser] = useState(null);
+    
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setCurrentUser(user);
+    };
+    getCurrentUser();
+  }, []);
+
+  const renderConfessionItem = ({ item }) => {
+    // Check if current user is the creator of the confession, even if it's anonymous
+    const isCurrentUserConfession = currentUser && (
+      (item.user_id === currentUser.id) || // For non-anonymous posts
+      (item.is_anonymous && item.creator_id === currentUser.id) // For anonymous posts
+    );
+    const formattedDate = item.created_at 
+      ? new Date(item.created_at).toLocaleDateString('en-US', {
+          month: 'short',
+          day: 'numeric',
+          year: 'numeric'
+        }) + ' at ' + new Date(item.created_at).toLocaleTimeString('en-US', {
+          hour: '2-digit',
+          minute: '2-digit'
+        })
+      : '';
+    
+    return (
+      <View style={styles.confessionCard}>
+        <View style={styles.confessionHeader}>
+          <Image 
+            source={{ uri: item.is_anonymous 
+              ? 'https://via.placeholder.com/40' 
+              : (item.avatar_url || 'https://via.placeholder.com/40') 
+            }}
+            style={styles.avatar}
+          />
+          <View style={styles.userInfoContainer}>
+            <TouchableOpacity 
+              onPress={() => {
+                if (!item.is_anonymous && item.user_id) {
+                  navigation.navigate('UserProfile', { userId: item.user_id });
+                }
+              }}
+            >
+              <Text style={[styles.username, { color: '#ff00ff' }]}>
+                {item.is_anonymous ? 'Anonymous' : (item.username || 'User')}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.dateText}>{formattedDate}</Text>
+          {isCurrentUserConfession && (
+            <TouchableOpacity
+              style={styles.menuButton}
+              onPress={() => {
+                Alert.alert(
+                  'Confession Options',
+                  'What would you like to do?',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { 
+                      text: 'Delete', 
+                      onPress: () => {
+                        Alert.alert(
+                          'Delete Confession',
+                          'Are you sure you want to delete this confession?',
+                          [
+                            { text: 'Cancel', style: 'cancel' },
+                            { 
+                              text: 'Delete', 
+                              onPress: () => deleteConfession(item.id),
+                              style: 'destructive' 
+                            }
+                          ]
+                        );
+                      },
+                      style: 'destructive'
+                    }
+                  ]
+                );
+              }}
+            >
+              <Ionicons name="ellipsis-vertical" size={20} color="#ff00ff" />
+            </TouchableOpacity>
+          )}
+        </View>
+        
+        <Text style={styles.confessionContent}>{item.content}</Text>
+        
+        {item.media && item.media.length > 0 && (
+          <ScrollView horizontal style={styles.mediaContainer}>
+            {item.media.map((mediaItem, index) => (
+              <Image 
+                key={index}
+                source={{ uri: mediaItem.url }}
+                style={styles.mediaItem}
+              />
+            ))}          
+          </ScrollView>
+        )}
+        
+        <View style={styles.actionBar}>
+          <TouchableOpacity style={styles.actionButton}>
+            <Ionicons name="heart-outline" size={24} color="#ff00ff" />
+            <Text style={styles.actionText}>{item.likes_count || 0}</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.actionButton}>
+            <Ionicons name="chatbubble-outline" size={22} color="#ff00ff" />
+            <Text style={styles.actionText}>{item.comments_count || 0}</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.actionButton}>
+            <Ionicons name="share-social-outline" size={24} color="#ff00ff" />
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  };
+
+  // Add mode selection component
+  const renderModeSelection = () => (
+    <View style={styles.modeContainer}>
+      <TouchableOpacity 
+        style={[styles.modeButton, mode === 'write' && styles.modeButtonActive]}
+        onPress={() => setMode('write')}
+      >
+        <Ionicons name="create" size={24} color={mode === 'write' ? '#fff' : '#ff00ff'} />
+        <Text style={[styles.modeButtonText, mode === 'write' && styles.modeButtonTextActive]}>Write Confession</Text>
+      </TouchableOpacity>
+      
+      <TouchableOpacity 
+        style={[styles.modeButton, mode === 'view' && styles.modeButtonActive]}
+        onPress={() => setMode('view')}
+      >
+        <Ionicons name="eye" size={24} color={mode === 'view' ? '#fff' : '#ff00ff'} />
+        <Text style={[styles.modeButtonText, mode === 'view' && styles.modeButtonTextActive]}>View Confessions</Text>
+      </TouchableOpacity>
+    </View>
+  );
+
+  return (
+    <View style={styles.container}>
+      <View style={styles.header}>
+        <TouchableOpacity 
+          onPress={() => navigation.goBack()}
+          style={styles.backButton}
+        >
+          <Ionicons name="arrow-back" size={24} color="#ff00ff" />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Confessions</Text>
+      </View>
+
+      {mode === 'select' ? (
+        renderModeSelection()
+      ) : (
+        <>
+          <View style={styles.searchContainer}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Search for a place, institution, company..."
+              placeholderTextColor="#999"
+              value={searchQuery}
+              onChangeText={(text) => {
+                setSearchQuery(text);
+                if (text.length >= 3) {
+                  searchLocations(text);
+                }
+              }}
+            />
+            <TouchableOpacity 
+              style={styles.mapButton}
+              onPress={() => setShowMap(!showMap)}
+            >
+              <Ionicons name="map" size={24} color="#ff00ff" />
+            </TouchableOpacity>
+          </View>
+          {searchError && (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>
+                {searchError.includes('Network request failed') 
+                  ? 'Network error. Check your connection.' 
+                  : 'Error searching locations. Try again.'}
+              </Text>
+            </View>
+          )}
+          
+          {searchResults.length > 0 && (
+            <FlatList
+              data={searchResults}
+              keyExtractor={(item) => item.place_id.toString()}
+              renderItem={({ item }) => (
+                <TouchableOpacity 
+                  style={styles.searchResultItem}
+                  onPress={() => selectLocation(item)}
+                >
+                  <Ionicons name="location" size={20} color="#ff00ff" />
+                  <Text style={styles.searchResultText}>{item.display_name}</Text>
+                </TouchableOpacity>
+              )}
+              style={styles.searchResultsList}
+            />
+          )}
+          
+          {showMap && (
+            <View style={styles.mapContainer}>
+              <WebView
+                style={styles.map}
+                source={{ uri: getMapUrl() }}
+                javaScriptEnabled={true}
+                domStorageEnabled={true}
+                onError={(e) => console.error('WebView error:', e.nativeEvent)}
+                renderLoading={() => (
+                  <View style={[styles.loadingContainer, StyleSheet.absoluteFill]}>
+                    <ActivityIndicator size="large" color="#ff00ff" />
+                  </View>
+                )}
+                startInLoadingState={true}
+              />
+              <View style={styles.mapControls}>
+                <TouchableOpacity 
+                  style={styles.closeMapButton}
+                  onPress={() => setShowMap(false)}
+                >
+                  <Ionicons name="close-circle" size={30} color="#ff00ff" />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.locationButton}
+                  onPress={goToUserLocation}
+                >
+                  <Ionicons name="locate" size={24} color="#ff00ff" />
+                </TouchableOpacity>
+              </View>
+            </View>
+          )}
+          
+          {selectedLocation && (
+            <View style={styles.locationHeader}>
+              <Text style={styles.locationName}>{selectedLocation.display_name}</Text>
+            </View>
+          )}
+          
+          {loading ? (
+            <View style={styles.loadingContainer}>
+              <ActivityIndicator size="large" color="#ff00ff" />
+            </View>
+          ) : selectedLocation ? (
+            confessions.length > 0 ? (
+              <FlatList
+                data={confessions}
+                keyExtractor={(item) => item.id.toString()}
+                renderItem={renderConfessionItem}
+                contentContainerStyle={styles.confessionsList}
+                refreshing={loading}
+                onRefresh={refreshConfessions}
+              />
+            ) : (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="chatbubbles-outline" size={60} color="#ff00ff" />
+                <Text style={styles.emptyText}>No confessions yet. Be the first to share!</Text>
+              </View>
+            )
+          ) : (
+            <View style={styles.instructionContainer}>
+              <Ionicons name="search" size={60} color="#ff00ff" />
+              <Text style={styles.instructionText}>
+                Search for a place or select a location on the map to see confessions
+              </Text>
+            </View>
+          )}
+          
+          {selectedLocation && (
+            <>
+              <TouchableOpacity 
+                style={styles.addButton}
+                onPress={() => setShowNewConfessionModal(true)}
+              >
+                <Ionicons name="add" size={30} color="#fff" />
+              </TouchableOpacity>
+              
+              <TouchableOpacity 
+                style={[styles.addButton, styles.refreshButton]}
+                onPress={refreshConfessions}
+              >
+                <Ionicons name="refresh" size={24} color="#fff" />
+              </TouchableOpacity>
+            </>
+          )}
+          
+          <Modal
+            visible={showNewConfessionModal}
+            transparent={true}
+            animationType="slide"
+            onRequestClose={() => setShowNewConfessionModal(false)}
+          >
+            <View style={styles.modalContainer}>
+              <View style={styles.modalContent}>
+                <View style={styles.modalHeader}>
+                  <Text style={styles.modalTitle}>New Confession</Text>
+                  <TouchableOpacity onPress={() => setShowNewConfessionModal(false)}>
+                    <Ionicons name="close" size={24} color="#ff00ff" />
+                  </TouchableOpacity>
+                </View>
+                
+                <TextInput
+                  style={styles.confessionInput}
+                  placeholder="What's your confession about this place?"
+                  placeholderTextColor="#999"
+                  multiline
+                  value={newConfession}
+                  onChangeText={setNewConfession}
+                />
+                
+                {media.length > 0 && (
+                  <ScrollView horizontal style={styles.selectedMediaContainer}>
+                    {media.map((item, index) => (
+                      <View key={index} style={styles.selectedMediaItem}>
+                        <Image source={{ uri: item.uri }} style={styles.selectedMediaPreview} />
+                        <TouchableOpacity 
+                          style={styles.removeMediaButton}
+                          onPress={() => setMedia(media.filter((_, i) => i !== index))}
+                        >
+                          <Ionicons name="close-circle" size={20} color="#ff00ff" />
+                        </TouchableOpacity>
+                      </View>
+                    ))}
+                  </ScrollView>
+                )}
+                
+                <View style={styles.mediaButtons}>
+                  <TouchableOpacity style={styles.mediaButton} onPress={pickImage}>
+                    <Ionicons name="image" size={24} color="#ff00ff" />
+                    <Text style={styles.mediaButtonText}>Add Image</Text>
+                  </TouchableOpacity>
+                </View>
+                
+                <View style={styles.anonymousOption}>
+                  <Text style={styles.anonymousText}>Remain anonymous</Text>
+                  <Switch
+                    value={remainAnonymous}
+                    onValueChange={setRemainAnonymous}
+                    trackColor={{ false: "#767577", true: "#ff00ff" }}
+                    thumbColor={remainAnonymous ? "#f4f3f4" : "#f4f3f4"}
+                  />
+                </View>
+                
+                <TouchableOpacity 
+                  style={styles.postButton}
+                  onPress={postConfession}
+                >
+                  <Text style={styles.postButtonText}>Post Confession</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </Modal>
+        </>
+      )}
+    </View>
+  );
+};
+
+const styles = StyleSheet.create({
+  menuButton: {
+    padding: 8,
+    borderRadius: 15,
+  },
+  modeContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    padding: 20,
+    backgroundColor: '#550033',
+  },
+  modeButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#330022',
+    padding: 15,
+    borderRadius: 10,
+    marginHorizontal: 10,
+  },
+  modeButtonActive: {
+    backgroundColor: '#ff00ff',
+  },
+  modeButtonText: {
+    color: '#ff00ff',
+    marginLeft: 10,
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  modeButtonTextActive: {
+    color: '#fff',
+  },
+  container: {
+    flex: 1,
+    backgroundColor: '#660033',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingTop: 50,
+    paddingHorizontal: 15,
+    paddingBottom: 15,
+  },
+  backButton: {
+    padding: 5,
+  },
+  headerTitle: {
+    color: '#ff00ff',
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginLeft: 15,
+  },
+  searchContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    backgroundColor: '#550033',
+  },
+  searchInput: {
+    flex: 1,
+    backgroundColor: '#330022',
+    borderRadius: 20,
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    color: '#fff',
+    marginRight: 10,
+  },
+  mapButton: {
+    backgroundColor: '#330022',
+    borderRadius: 20,
+    width: 44,
+    height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  searchResultsList: {
+    backgroundColor: '#330022',
+    maxHeight: 200,
+  },
+  searchResultItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#550033',
+  },
+  searchResultText: {
+    color: '#fff',
+    marginLeft: 10,
+    flex: 1,
+  },
+  mapContainer: {
+    height: 300,
+    position: 'relative',
+  },
+  map: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  mapControls: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    gap: 10,
+  },
+  closeMapButton: {
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 20,
+    padding: 5,
+  },
+  locationButton: {
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: 20,
+    padding: 8,
+  },
+  locationHeader: {
+    padding: 15,
+    backgroundColor: '#550033',
+  },
+  locationName: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  confessionsList: {
+    padding: 10,
+  },
+  confessionCard: {
+    backgroundColor: '#330022',
+    borderRadius: 10,
+    padding: 15,
+    marginBottom: 15,
+  },
+  confessionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  deleteButton: {
+    padding: 8,
+    borderRadius: 20,
+    backgroundColor: '#FFF0F0',
+  },
+  avatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 10,
+  },
+  username: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  dateText: {
+    color: '#FFFF00',
+    fontSize: 12,
+    marginLeft: 'auto',
+  },
+  confessionContent: {
+    color: '#fff',
+    fontSize: 16,
+    marginBottom: 10,
+  },
+  mediaContainer: {
+    flexDirection: 'row',
+    marginBottom: 10,
+  },
+  mediaItem: {
+    width: 150,
+    height: 150,
+    borderRadius: 10,
+    marginRight: 10,
+  },
+  videoContainer: {
+    width: 150,
+    height: 150,
+    borderRadius: 10,
+    marginRight: 10,
+    backgroundColor: '#220011',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  actionBar: {
+    flexDirection: 'row',
+    borderTopWidth: 1,
+    borderTopColor: '#550033',
+    paddingTop: 10,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginRight: 20,
+  },
+  actionText: {
+    color: '#ff00ff',
+    marginLeft: 5,
+  },
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  emptyText: {
+    color: '#ff00ff',
+    textAlign: 'center',
+    marginTop: 10,
+    fontSize: 16,
+  },
+  instructionContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  instructionText: {
+    color: '#ff00ff',
+    textAlign: 'center',
+    marginTop: 10,
+    fontSize: 16,
+  },
+  addButton: {
+    position: 'absolute',
+    bottom: 20,
+    right: 20,
+    backgroundColor: '#ff00ff',
+    width: 60,
+    height: 60,
+    borderRadius: 30,
+    justifyContent: 'center',
+    alignItems: 'center',
+    elevation: 5,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 3,
+  },
+  refreshButton: {
+    bottom: 90, // Position above the add button
+    backgroundColor: '#3399ff',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#330022',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    minHeight: '50%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    color: '#ff00ff',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  confessionInput: {
+    backgroundColor: '#220011',
+    borderRadius: 10,
+    padding: 15,
+    color: '#fff',
+    minHeight: 100,
+    textAlignVertical: 'top',
+    marginBottom: 15,
+  },
+  selectedMediaContainer: {
+    flexDirection: 'row',
+    marginBottom: 15,
+  },
+  selectedMediaItem: {
+    position: 'relative',
+    marginRight: 10,
+  },
+  selectedMediaPreview: {
+    width: 80,
+    height: 80,
+    borderRadius: 5,
+  },
+  removeMediaButton: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: '#330022',
+    borderRadius: 10,
+  },
+  mediaButtons: {
+    flexDirection: 'row',
+    marginBottom: 20,
+  },
+  mediaButton: {
+    backgroundColor: '#220011',
+    borderRadius: 10,
+    padding: 10,
+    marginRight: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  mediaButtonText: {
+    color: '#ff00ff',
+    marginLeft: 8,
+    fontSize: 14,
+  },
+  anonymousOption: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  anonymousText: {
+    color: '#fff',
+    fontSize: 16,
+  },
+  postButton: {
+    backgroundColor: '#ff00ff',
+    borderRadius: 10,
+    padding: 15,
+    alignItems: 'center',
+  },
+  postButtonText: {
+    color: '#550033',
+    fontWeight: 'bold',
+    fontSize: 16,
+  },
+  errorContainer: {
+    padding: 15,
+    backgroundColor: '#550033',
+  },
+  errorText: {
+    color: '#ff0000',
+    textAlign: 'center',
+  },
+});
+
+export default ConfessionScreen;

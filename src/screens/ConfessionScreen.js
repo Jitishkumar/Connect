@@ -276,16 +276,31 @@ const ConfessionScreen = () => {
   };
 
   const selectLocation = (location) => {
+    if (!location) {
+      console.error('Error: Attempted to select undefined location');
+      return;
+    }
+    
     setSelectedLocation(location);
     setSearchResults([]);
-    setMapRegion({
-      latitude: parseFloat(location.lat),
-      longitude: parseFloat(location.lon),
-    });
+    
+    if (location.lat && location.lon) {
+      setMapRegion({
+        latitude: parseFloat(location.lat),
+        longitude: parseFloat(location.lon),
+      });
+    }
+    
+    // Check if place_id exists before proceeding
+    if (!location.place_id) {
+      console.error('Error: Selected location has no place_id');
+      Alert.alert('Error', 'Invalid location data. Please try selecting a different location.');
+      return;
+    }
     
     // Handle custom place IDs (they have 'custom_' prefix)
     let locationId = location.place_id;
-    if (location.is_custom && locationId.startsWith('custom_')) {
+    if (location.is_custom && typeof locationId === 'string' && locationId.startsWith('custom_')) {
       // Extract the numeric ID part for custom places
       locationId = locationId.replace('custom_', '');
     }
@@ -296,8 +311,15 @@ const ConfessionScreen = () => {
   
   // Add a refresh function to reload confessions
   const refreshConfessions = () => {
-    if (selectedLocation) {
-      loadConfessions(selectedLocation.place_id);
+    if (selectedLocation && selectedLocation.place_id) {
+      // Handle custom place IDs consistently
+      let locationId = selectedLocation.place_id;
+      if (selectedLocation.is_custom && typeof locationId === 'string' && locationId.startsWith('custom_')) {
+        locationId = locationId.replace('custom_', '');
+      }
+      loadConfessions(locationId);
+    } else {
+      console.warn('Cannot refresh: No location selected or invalid location');
     }
   };
 
@@ -306,24 +328,59 @@ const ConfessionScreen = () => {
   const loadConfessions = async (locationId) => {
     setLoading(true);
     try {
+      // Check if locationId is undefined or null
+      if (!locationId) {
+        console.error('Error: locationId is undefined or null');
+        Alert.alert('Error', 'Invalid location. Please select a location and try again.');
+        setLoading(false);
+        return;
+      }
+      
+      // Handle custom place IDs (they have 'custom_' prefix)
+      const cleanLocationId = typeof locationId === 'string' && locationId.startsWith('custom_') ? 
+        locationId.replace('custom_', '') : locationId;
+  
+      console.log('Loading confessions for location:', { originalId: locationId, cleanId: cleanLocationId });
+  
       // First get confessions - disable caching to ensure we get the latest data
       const { data: confessionsData, error: confessionsError } = await supabase
         .from('confessions')
-        .select('*')
-        .eq('location_id', locationId)
+        .select(`
+          id,
+          user_id,
+          creator_id,
+          location_id,
+          location_name,
+          content,
+          media,
+          is_anonymous,
+          likes_count,
+          comments_count,
+          created_at,
+          username
+        `)
+        .eq('location_id', cleanLocationId)
         .order('created_at', { ascending: false })
-        .limit(50) // Limit to latest 50 confessions
-        .abortSignal(new AbortController().signal); // This forces a fresh network request
-        
-      if (confessionsError) throw confessionsError;
-      
+        .limit(50); // Limit to latest 50 confessions
+  
+      if (confessionsError) {
+        console.error('Error fetching confessions:', confessionsError);
+        throw confessionsError;
+      }
+  
       console.log('Raw confessions data:', confessionsData); // Debug log for raw data
-      
+  
+      if (!confessionsData || confessionsData.length === 0) {
+        console.log('No confessions found for location:', cleanLocationId);
+        setConfessions([]);
+        return;
+      }
+  
       // Process confessions data to ensure media is properly parsed
-      const processedConfessions = (confessionsData || []).map(confession => {
+      const processedConfessions = await Promise.all(confessionsData.map(async confession => {
         // Ensure media is properly parsed if it's a string
         let processedMedia = confession.media;
-        
+  
         // If media is a string, try to parse it as JSON
         if (typeof confession.media === 'string') {
           try {
@@ -333,14 +390,14 @@ const ConfessionScreen = () => {
             processedMedia = []; // Default to empty array if parsing fails
           }
         }
-        
+  
         // If media is null or undefined, set it to an empty array
         if (!processedMedia) {
           processedMedia = [];
         }
-        
+  
         // Ensure each media item has the expected structure
-        const validatedMedia = Array.isArray(processedMedia) ? 
+        const validatedMedia = Array.isArray(processedMedia) ?
           processedMedia.map(item => {
             // If the item is already in the correct format, return it
             if (item && typeof item === 'object' && item.url) {
@@ -353,40 +410,37 @@ const ConfessionScreen = () => {
             // Skip invalid items
             return null;
           }).filter(Boolean) : [];
-        
+  
+        // For non-anonymous confessions, fetch user profile
+        let userProfile = null;
+        if (!confession.is_anonymous && confession.user_id) {
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('username, full_name, avatar_url')
+            .eq('id', confession.user_id)
+            .single();
+  
+          if (profileData) {
+            userProfile = {
+              username: profileData.username || profileData.full_name,
+              avatar_url: profileData.avatar_url
+            };
+          }
+        }
+  
         return {
           ...confession,
-          media: validatedMedia
+          media: validatedMedia,
+          ...(userProfile && { username: userProfile.username, avatar_url: userProfile.avatar_url })
         };
-      });
-      
-      // For non-anonymous confessions, fetch user profiles
-      const confessionsWithProfiles = await Promise.all(
-        processedConfessions.map(async (confession) => {
-          if (!confession.is_anonymous && confession.user_id) {
-            // Fetch user profile
-            const { data: profileData } = await supabase
-              .from('profiles')
-              .select('username, full_name, avatar_url')
-              .eq('id', confession.user_id)
-              .single();
-              
-            if (profileData) {
-              return {
-                ...confession,
-                username: profileData.username || profileData.full_name,
-                avatar_url: profileData.avatar_url
-              };
-            }
-          }
-          return confession;
-        })
-      );
-      
-      console.log('Loaded confessions with media:', confessionsWithProfiles.map(c => ({ id: c.id, media: c.media })));
-      setConfessions(confessionsWithProfiles || []);
+      }));
+  
+      console.log('Processed confessions:', processedConfessions.length);
+      setConfessions(processedConfessions);
     } catch (error) {
       console.error('Error loading confessions:', error);
+      Alert.alert('Error', 'Failed to load confessions. Please try again.');
+      setConfessions([]); // Reset confessions on error
     } finally {
       setLoading(false);
     }
@@ -862,12 +916,9 @@ const ConfessionScreen = () => {
                 <Ionicons name="add" size={30} color="#fff" />
               </TouchableOpacity>
               
-              <TouchableOpacity 
-                style={[styles.addButton, styles.refreshButton]}
-                onPress={refreshConfessions}
-              >
-                <Ionicons name="refresh" size={24} color="#fff" />
-              </TouchableOpacity>
+              
+
+              
             </>
           )}
           
@@ -1489,5 +1540,4 @@ const styles = StyleSheet.create({
 });
 
 export default ConfessionScreen;
-
 
