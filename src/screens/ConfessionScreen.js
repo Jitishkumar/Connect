@@ -105,6 +105,10 @@ const ConfessionScreen = () => {
     setLoading(true);
     setSearchError(null);
     try {
+      // Create an array to hold all search results
+      let combinedResults = [];
+      
+      // 1. Search OpenStreetMap API
       let searchUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=10`;
       
       if (userLocation) {
@@ -120,10 +124,65 @@ const ConfessionScreen = () => {
       
       if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
       
-      const data = await response.json();
-      // Clear any previous results before setting new ones
-      setSearchResults([]);
-      setSearchResults(data);
+      const osmData = await response.json();
+      combinedResults = [...osmData];
+      
+      // 2. Search custom places from Supabase with improved search logic
+      console.log('Searching for custom places with query:', query);
+      
+      // Split the query into words for more flexible matching
+      const queryWords = query.toLowerCase().split(/\s+/).filter(word => word.length >= 2);
+      
+      // Build a more flexible search filter
+      let filterConditions = [];
+      
+      // First try exact match with the full query
+      filterConditions.push(`name.ilike.%${query}%`);
+      filterConditions.push(`city.ilike.%${query}%`);
+      
+      // Then try matching individual words across different fields
+      queryWords.forEach(word => {
+        filterConditions.push(`name.ilike.%${word}%`);
+        filterConditions.push(`city.ilike.%${word}%`);
+        filterConditions.push(`district.ilike.%${word}%`);
+        filterConditions.push(`state.ilike.%${word}%`);
+        filterConditions.push(`country.ilike.%${word}%`);
+      });
+      
+      const { data: placesData, error: placesError } = await supabase
+        .from('places')
+        .select('*')
+        .or(filterConditions.join(','))
+        .limit(20);
+      
+      if (placesError) {
+        console.error('Error searching custom places:', placesError);
+      } else {
+        console.log('Custom places search results:', placesData ? placesData.length : 0);
+        
+        if (placesData && placesData.length > 0) {
+          // Format custom places to match OpenStreetMap result structure
+          const formattedPlaces = placesData.map(place => {
+            // Create a display name that highlights which part matched the search
+            const displayName = `${place.name}, ${place.city}${place.district ? ', ' + place.district : ''}, ${place.state}, ${place.country} (Custom)`;
+            
+            return {
+              place_id: `custom_${place.id}`, // Add prefix to distinguish from OSM IDs
+              display_name: displayName,
+              lat: place.latitude ? place.latitude.toString() : '0',
+              lon: place.longitude ? place.longitude.toString() : '0',
+              // Add a flag to identify custom places
+              is_custom: true
+            };
+          });
+          
+          // Add custom places to the combined results
+          combinedResults = [...combinedResults, ...formattedPlaces];
+        }
+      }
+      
+      // Set the combined results
+      setSearchResults(combinedResults);
     } catch (error) {
       console.error('Error searching locations:', error);
       setSearchError(error.message);
@@ -140,19 +199,41 @@ const ConfessionScreen = () => {
     }
 
     try {
+      // Get the current authenticated user
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        Alert.alert('Error', 'You must be logged in to add a place');
+        return;
+      }
+      
+      // Use user's current location as fallback for latitude/longitude
+      let latitude = null;
+      let longitude = null;
+      
+      if (userLocation) {
+        latitude = userLocation.coords.latitude;
+        longitude = userLocation.coords.longitude;
+      }
+      
+      const placeData = {
+        type: newPlace.type,
+        name: newPlace.name,
+        city: newPlace.city,
+        district: newPlace.district || null,
+        state: newPlace.state,
+        country: newPlace.country,
+        latitude: latitude,
+        longitude: longitude,
+        created_at: new Date().toISOString(),
+        created_by: user.id // Add the authenticated user's ID to satisfy RLS policy
+      };
+      
+      console.log('Adding new place:', placeData);
+      
       const { data, error } = await supabase
         .from('places')
-        .insert([
-          {
-            type: newPlace.type,
-            name: newPlace.name,
-            city: newPlace.city,
-            district: newPlace.district,
-            state: newPlace.state,
-            country: newPlace.country,
-            created_at: new Date().toISOString()
-          }
-        ])
+        .insert([placeData])
         .select()
         .single();
 
@@ -168,14 +249,25 @@ const ConfessionScreen = () => {
         country: ''
       });
 
-      // Add the new place to search results
-      setSearchResults([{
-        place_id: data.id,
-        display_name: `${data.name}, ${data.city},${data.district ? data.district + ', ' : ''} ${data.state}, ${data.country}`,
-        lat: data.latitude || '0',
-        lon: data.longitude || '0'
-      }]);
-
+      // Add the new place to search results with proper coordinates
+      const newPlaceResult = {
+        place_id: `custom_${data.id}`,
+        display_name: `${data.name}, ${data.city}${data.district ? ', ' + data.district : ''}, ${data.state}, ${data.country} (Custom)`,
+        lat: data.latitude ? data.latitude.toString() : (latitude ? latitude.toString() : '0'),
+        lon: data.longitude ? data.longitude.toString() : (longitude ? longitude.toString() : '0'),
+        is_custom: true
+      };
+      
+      console.log('Added new place to search results:', newPlaceResult);
+      
+      setSearchResults(prevResults => [
+        ...prevResults,
+        newPlaceResult
+      ]);
+      
+      // Immediately select the newly added place
+      selectLocation(newPlaceResult);
+      
       Alert.alert('Success', 'Place added successfully');
     } catch (error) {
       console.error('Error adding place:', error);
@@ -190,8 +282,17 @@ const ConfessionScreen = () => {
       latitude: parseFloat(location.lat),
       longitude: parseFloat(location.lon),
     });
-    loadConfessions(location.place_id);
+    
+    // Handle custom place IDs (they have 'custom_' prefix)
+    let locationId = location.place_id;
+    if (location.is_custom && locationId.startsWith('custom_')) {
+      // Extract the numeric ID part for custom places
+      locationId = locationId.replace('custom_', '');
+    }
+    
+    loadConfessions(locationId);
   };
+
   
   // Add a refresh function to reload confessions
   const refreshConfessions = () => {
