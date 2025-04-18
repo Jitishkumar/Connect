@@ -343,7 +343,7 @@ const ConfessionScreen = () => {
       console.log('Loading confessions for location:', { originalId: locationId, cleanId: cleanLocationId });
   
       // First get confessions - disable caching to ensure we get the latest data
-      const { data: confessionsData, error: confessionsError } = await supabase
+      let query = supabase
         .from('confessions')
         .select(`
           id,
@@ -359,9 +359,13 @@ const ConfessionScreen = () => {
           created_at,
           username
         `)
-        .eq('location_id', cleanLocationId)
         .order('created_at', { ascending: false })
         .limit(50); // Limit to latest 50 confessions
+
+      // Handle both original and clean location IDs using proper SQL array syntax
+      query = query.in('location_id', [locationId, cleanLocationId]);
+      
+      const { data: confessionsData, error: confessionsError } = await query;
   
       if (confessionsError) {
         console.error('Error fetching confessions:', confessionsError);
@@ -917,8 +921,8 @@ const ConfessionScreen = () => {
               </TouchableOpacity>
               
               
-
-              
+ {/* Debug button to check confessions in database */}
+ 
             </>
           )}
           
