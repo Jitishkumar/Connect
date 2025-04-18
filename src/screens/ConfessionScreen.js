@@ -26,7 +26,7 @@ import * as FileSystem from 'expo-file-system';
 
 const ConfessionScreen = () => {
   const navigation = useNavigation();
-  const [mode, setMode] = useState('select'); // 'select', 'write', or 'view'
+  const [mode, setMode] = useState('view'); // Changed default to 'view' to skip selection screen
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResults, setSearchResults] = useState([]);
   const [selectedLocation, setSelectedLocation] = useState(null);
@@ -60,7 +60,14 @@ const ConfessionScreen = () => {
         });
       }
     })();
-  }, []);
+    
+    // Cleanup function to clear any pending search timeout when component unmounts
+    return () => {
+      if (searchTimeout) {
+        clearTimeout(searchTimeout);
+      }
+    };
+  }, [searchTimeout]);
 
   const getMapUrl = () => {
     const lat = mapRegion.latitude;
@@ -76,9 +83,26 @@ const ConfessionScreen = () => {
     return url;
   };
 
+  const [showAddPlaceModal, setShowAddPlaceModal] = useState(false);
+  const [newPlace, setNewPlace] = useState({
+    type: 'institute', // Default type
+    name: '',
+    city: '',
+    district: '',
+    state: '',
+    country: ''
+  });
+
+  // Add a reference to store the search timeout
+  const [searchTimeout, setSearchTimeout] = useState(null);
+
   const searchLocations = async (query) => {
-    if (query.length < 3) return;
+    if (query.length < 3) {
+      setSearchResults([]);
+      return;
+    }
     
+    setLoading(true);
     setSearchError(null);
     try {
       let searchUrl = `https://nominatim.openstreetmap.org/search?format=json&q=${encodeURIComponent(query)}&limit=10`;
@@ -97,28 +121,65 @@ const ConfessionScreen = () => {
       if (!response.ok) throw new Error(`HTTP error! Status: ${response.status}`);
       
       const data = await response.json();
+      // Clear any previous results before setting new ones
+      setSearchResults([]);
       setSearchResults(data);
     } catch (error) {
       console.error('Error searching locations:', error);
       setSearchError(error.message);
       setSearchResults([]);
-      
-      if (__DEV__) {
-        setSearchResults([
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddPlace = async () => {
+    if (!newPlace.name || !newPlace.city || !newPlace.state || !newPlace.country) {
+      Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('places')
+        .insert([
           {
-            place_id: '1',
-            display_name: 'New York, USA',
-            lat: '40.7128',
-            lon: '-74.0060'
-          },
-          {
-            place_id: '2',
-            display_name: 'London, UK',
-            lat: '51.5074',
-            lon: '-0.1278'
+            type: newPlace.type,
+            name: newPlace.name,
+            city: newPlace.city,
+            district: newPlace.district,
+            state: newPlace.state,
+            country: newPlace.country,
+            created_at: new Date().toISOString()
           }
-        ]);
-      }
+        ])
+        .select()
+        .single();
+
+      if (error) throw error;
+
+      // Close modal and reset form
+      setShowAddPlaceModal(false);
+      setNewPlace({
+        type: 'institute',
+        name: '',
+        city: '',
+        state: '',
+        country: ''
+      });
+
+      // Add the new place to search results
+      setSearchResults([{
+        place_id: data.id,
+        display_name: `${data.name}, ${data.city},${data.district ? data.district + ', ' : ''} ${data.state}, ${data.country}`,
+        lat: data.latitude || '0',
+        lon: data.longitude || '0'
+      }]);
+
+      Alert.alert('Success', 'Place added successfully');
+    } catch (error) {
+      console.error('Error adding place:', error);
+      Alert.alert('Error', 'Failed to add place. Please try again.');
     }
   };
 
@@ -538,11 +599,14 @@ const ConfessionScreen = () => {
         <Text style={styles.headerTitle}>Confessions</Text>
       </View>
 
-      {mode === 'select' ? (
-        renderModeSelection()
-      ) : (
+      {(
         <>
-          <View style={styles.searchContainer}>
+         
+
+         <View style={styles.searchContainer}>
+         
+
+         
             <TextInput
               style={styles.searchInput}
               placeholder="Search for a place, institution, company..."
@@ -550,29 +614,37 @@ const ConfessionScreen = () => {
               value={searchQuery}
               onChangeText={(text) => {
                 setSearchQuery(text);
-                if (text.length >= 3) {
-                  searchLocations(text);
+                
+                // Clear any existing timeout
+                if (searchTimeout) {
+                  clearTimeout(searchTimeout);
                 }
+                
+                // Clear results if text is too short
+                if (text.length < 3) {
+                  setSearchResults([]);
+                  return;
+                }
+                
+                // Set a new timeout to delay the search
+                const timeout = setTimeout(() => {
+                  searchLocations(text);
+                }, 500); // 500ms debounce delay
+                
+                setSearchTimeout(timeout);
               }}
             />
-            <TouchableOpacity 
-              style={styles.mapButton}
-              onPress={() => setShowMap(!showMap)}
-            >
-              <Ionicons name="map" size={24} color="#ff00ff" />
-            </TouchableOpacity>
+            {searchQuery.length > 0 && (
+              <TouchableOpacity onPress={() => setSearchQuery('')}>
+                <Ionicons name="close-circle" size={20} color="#999" />
+              </TouchableOpacity>
+            )}
           </View>
-          {searchError && (
-            <View style={styles.errorContainer}>
-              <Text style={styles.errorText}>
-                {searchError.includes('Network request failed') 
-                  ? 'Network error. Check your connection.' 
-                  : 'Error searching locations. Try again.'}
-              </Text>
-            </View>
-          )}
+
+
+
           
-          {searchResults.length > 0 && (
+          {searchResults.length > 0 ? (
             <FlatList
               data={searchResults}
               keyExtractor={(item) => item.place_id.toString()}
@@ -587,6 +659,30 @@ const ConfessionScreen = () => {
               )}
               style={styles.searchResultsList}
             />
+          ) : (
+            searchQuery.length >= 3 && !loading && (
+              <View style={styles.noResultsContainer}>
+                <Text style={styles.noResultsText}>No locations found</Text>
+                <TouchableOpacity 
+                  style={styles.addPlaceButton}
+                  onPress={() => {
+                    // Only show add place modal when user explicitly clicks this button
+                    setShowAddPlaceModal(true);
+                  }}
+                >
+                  <Text style={styles.addPlaceButtonText}>Add New Place</Text>
+                </TouchableOpacity>
+              </View>
+            )
+          )}
+          {searchError && (
+            <View style={styles.errorContainer}>
+              <Text style={styles.errorText}>
+                {searchError.includes('Network request failed') 
+                  ? 'Network error. Check your connection.' 
+                  : 'Error searching locations. Try again.'}
+              </Text>
+            </View>
           )}
           
           {showMap && (
@@ -675,6 +771,104 @@ const ConfessionScreen = () => {
           )}
           
           <Modal
+            visible={showAddPlaceModal}
+            animationType="slide"
+            transparent={true}
+            onRequestClose={() => setShowAddPlaceModal(false)}
+          >
+            <View style={styles.modalContainer}>
+              <View style={styles.modalContent}>
+                <Text style={styles.modalTitle}>Add Place</Text>
+                
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Type</Text>
+                  <View style={styles.typeSelector}>
+                    {['institute', 'office', 'place', 'building'].map((type) => (
+                      <TouchableOpacity
+                        key={type}
+                        style={[styles.typeButton, newPlace.type === type && styles.selectedType]}
+                        onPress={() => setNewPlace(prev => ({ ...prev, type }))}
+                      >
+                        <Text style={[styles.typeText, newPlace.type === type && styles.selectedTypeText]}>
+                          {type.charAt(0).toUpperCase() + type.slice(1)}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Name</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={newPlace.name}
+                    onChangeText={(text) => setNewPlace(prev => ({ ...prev, name: text }))}
+                    placeholder="Enter place name"
+                    placeholderTextColor="#666"
+                  />
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>City</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={newPlace.city}
+                    onChangeText={(text) => setNewPlace(prev => ({ ...prev, city: text }))}
+                    placeholder="Enter city"
+                    placeholderTextColor="#666"
+                  />
+                </View>
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>District</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={newPlace.district}
+                    onChangeText={(text) => setNewPlace(prev => ({ ...prev, district: text }))}
+                    placeholder="Enter district"
+                    placeholderTextColor="#666"
+                  />
+                </View>
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>State</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={newPlace.state}
+                    onChangeText={(text) => setNewPlace(prev => ({ ...prev, state: text }))}
+                    placeholder="Enter state"
+                    placeholderTextColor="#666"
+                  />
+                </View>
+
+                <View style={styles.formGroup}>
+                  <Text style={styles.label}>Country</Text>
+                  <TextInput
+                    style={styles.input}
+                    value={newPlace.country}
+                    onChangeText={(text) => setNewPlace(prev => ({ ...prev, country: text }))}
+                    placeholder="Enter country"
+                    placeholderTextColor="#666"
+                  />
+                </View>
+
+                <View style={styles.modalButtons}>
+                  <TouchableOpacity 
+                    style={[styles.modalButton, styles.cancelButton]}
+                    onPress={() => setShowAddPlaceModal(false)}
+                  >
+                    <Text style={styles.buttonText}>Cancel</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity 
+                    style={[styles.modalButton, styles.addButton]}
+                    onPress={handleAddPlace}
+                  >
+                    <Text style={styles.buttonText}>Add Place</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            </View>
+          </Modal>
+
+          <Modal
             visible={showNewConfessionModal}
             transparent={true}
             animationType="slide"
@@ -747,6 +941,88 @@ const ConfessionScreen = () => {
 };
 
 const styles = StyleSheet.create({
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 15,
+    padding: 20,
+  },
+  modalTitle: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  formGroup: {
+    marginBottom: 15,
+  },
+  label: {
+    color: '#fff',
+    fontSize: 16,
+    marginBottom: 5,
+  },
+  input: {
+    backgroundColor: '#333',
+    borderRadius: 8,
+    color: '#fff',
+    fontSize: 16,
+    padding: 12,
+  },
+  typeSelector: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 10,
+  },
+  typeButton: {
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 20,
+    backgroundColor: '#333',
+    borderWidth: 1,
+    borderColor: '#666',
+  },
+  selectedType: {
+    backgroundColor: '#ff00ff',
+    borderColor: '#ff00ff',
+  },
+  typeText: {
+    color: '#fff',
+    fontSize: 14,
+  },
+  selectedTypeText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginTop: 20,
+  },
+  modalButton: {
+    flex: 1,
+    padding: 12,
+    borderRadius: 8,
+    marginHorizontal: 5,
+  },
+  cancelButton: {
+    backgroundColor: '#333',
+  },
+  addButton: {
+    backgroundColor: '#ff00ff',
+  },
+  buttonText: {
+    color: '#fff',
+    fontSize: 16,
+    textAlign: 'center',
+    fontWeight: 'bold',
+  },
   menuButton: {
     padding: 8,
     borderRadius: 15,
@@ -779,9 +1055,20 @@ const styles = StyleSheet.create({
   modeButtonTextActive: {
     color: '#fff',
   },
+  addPlaceButton: {
+    backgroundColor: '#ff00ff',
+    padding: 10,
+    borderRadius: 5,
+    marginBottom: 10,
+    alignItems: 'center',
+  },
+  addPlaceButtonText: {
+    color: 'white',
+    fontWeight: 'bold',
+  },
   container: {
     flex: 1,
-    backgroundColor: '#660033',
+    backgroundColor: '#000033',
   },
   header: {
     flexDirection: 'row',
@@ -819,6 +1106,14 @@ const styles = StyleSheet.create({
     borderRadius: 20,
     width: 44,
     height: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  addPlaceButton: {
+    backgroundColor: '#330022',
+    borderRadius: 20,
+    width: 44,
+    height: 80,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -1093,4 +1388,5 @@ const styles = StyleSheet.create({
 });
 
 export default ConfessionScreen;
+
 
