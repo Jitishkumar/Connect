@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert, Image } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Alert, Image, Animated, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../config/supabase';
 import * as ImagePicker from 'expo-image-picker';
@@ -12,6 +12,9 @@ const EditProfileScreen = ({ navigation }) => {
   const [loading, setLoading] = useState(false);
   const [avatarUrl, setAvatarUrl] = useState(null);
   const [coverUrl, setCoverUrl] = useState(null);
+  const [gender, setGender] = useState('');
+  const [showGenderModal, setShowGenderModal] = useState(false);
+  const blinkAnimation = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
     loadUserProfile();
@@ -33,6 +36,7 @@ const EditProfileScreen = ({ navigation }) => {
           setBio(data.bio || '');
           setAvatarUrl(data.avatar_url);
           setCoverUrl(data.cover_url);
+          setGender(data.gender || '');
         }
       }
     } catch (error) {
@@ -158,6 +162,7 @@ const EditProfileScreen = ({ navigation }) => {
           bio,
           avatar_url: avatarUrl,
           cover_url: coverUrl,
+          gender,
         }, { onConflict: 'id' });
 
       if (updateError) {
@@ -240,6 +245,22 @@ const EditProfileScreen = ({ navigation }) => {
         </View>
 
         <View style={styles.inputContainer}>
+          <Text style={styles.label}>Gender (Optional)</Text>
+          <TouchableOpacity
+            style={styles.input}
+            onPress={() => setShowGenderModal(true)}
+          >
+            <Text style={[styles.genderText, !gender && styles.placeholderText]}>
+              {gender ? (
+                gender === 'male' ? 'Male (GUY,MARD)' :
+                gender === 'female' ? 'Female (Cutie,Angel)' :
+                gender === 'third' ? 'Third gender (God gift)' : ''
+              ) : 'Select your gender'}
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.inputContainer}>
           <Text style={styles.label}>Bio</Text>
           <TextInput
             style={[styles.input, styles.bioInput]}
@@ -251,12 +272,126 @@ const EditProfileScreen = ({ navigation }) => {
             numberOfLines={4}
           />
         </View>
+
+        {/* Gender Selection Modal */}
+        <Modal
+          visible={showGenderModal}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setShowGenderModal(false)}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <Text style={styles.modalTitle}>Select Gender</Text>
+              
+              <TouchableOpacity 
+                style={styles.genderOption}
+                onPress={() => {
+                  setGender('male');
+                  setShowGenderModal(false);
+                }}
+              >
+                <Text style={styles.genderOptionText}>Male (GUY,MARD)</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.genderOption}
+                onPress={() => {
+                  setGender('female');
+                  setShowGenderModal(false);
+                }}
+              >
+                <Text style={styles.genderOptionText}>Female (Cutie,Angel)</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.genderOption}
+                onPress={() => {
+                  setGender('third');
+                  setShowGenderModal(false);
+                }}
+              >
+                <Text style={styles.genderOptionText}>Third gender (God gift)</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={[styles.genderOption, styles.clearOption]}
+                onPress={() => {
+                  setGender('');
+                  setShowGenderModal(false);
+                }}
+              >
+                <Text style={[styles.genderOptionText, styles.clearOptionText]}>Clear Selection</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity 
+                style={styles.closeButton}
+                onPress={() => setShowGenderModal(false)}
+              >
+                <Text style={styles.closeButtonText}>Close</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
       </View>
     </ScrollView>
   );
 };
 
 const styles = StyleSheet.create({
+  modalContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+  },
+  modalContent: {
+    backgroundColor: '#1a1a1a',
+    borderRadius: 15,
+    padding: 20,
+    width: '80%',
+    alignItems: 'center',
+  },
+  modalTitle: {
+    color: '#ff00ff',
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 20,
+  },
+  genderOption: {
+    width: '100%',
+    padding: 15,
+    borderRadius: 10,
+    backgroundColor: '#001453',
+    marginBottom: 10,
+  },
+  genderOptionText: {
+    color: 'white',
+    fontSize: 16,
+    textAlign: 'center',
+  },
+  clearOption: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#ff00ff',
+  },
+  clearOptionText: {
+    color: '#ff00ff',
+  },
+  closeButton: {
+    marginTop: 10,
+    padding: 15,
+    width: '100%',
+  },
+  closeButtonText: {
+    color: '#ff00ff',
+    textAlign: 'center',
+    fontSize: 16,
+  },
+  genderText: {
+    color: 'white',
+    fontSize: 16,
+  },
   container: {
     flex: 1,
     backgroundColor: '#000',

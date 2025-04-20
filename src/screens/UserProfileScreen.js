@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { supabase } from '../config/supabase';
@@ -8,6 +8,49 @@ const UserProfileScreen = () => {
   const [userProfile, setUserProfile] = useState(null);
   const [loading, setLoading] = useState(true);
   const [showFullBio, setShowFullBio] = useState(false);
+  const [viewerGender, setViewerGender] = useState(null);
+  const blinkAnimation = useRef(new Animated.Value(0)).current;
+  const blinkView = useRef(null);
+
+  // Function to create blinking animation
+  const createBlinkAnimation = (color) => {
+    Animated.sequence([
+      Animated.timing(blinkAnimation, {
+        toValue: 1,
+        duration: 300,
+        useNativeDriver: false,
+      }),
+      Animated.timing(blinkAnimation, {
+        toValue: 0,
+        duration: 300,
+        useNativeDriver: false,
+      }),
+    ]).start(() => {
+      // Repeat two more times for a total of 3 blinks
+      Animated.sequence([
+        Animated.timing(blinkAnimation, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: false,
+        }),
+        Animated.timing(blinkAnimation, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: false,
+        }),
+        Animated.timing(blinkAnimation, {
+          toValue: 1,
+          duration: 300,
+          useNativeDriver: false,
+        }),
+        Animated.timing(blinkAnimation, {
+          toValue: 0,
+          duration: 300,
+          useNativeDriver: false,
+        }),
+      ]).start();
+    });
+  };
   const [isFollowing, setIsFollowing] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
@@ -17,6 +60,7 @@ const UserProfileScreen = () => {
 
   useEffect(() => {
     loadUserProfile();
+    loadViewerGender();
     checkFollowStatus();
     fetchFollowersCount();
     fetchFollowingCount();
@@ -39,6 +83,25 @@ const UserProfileScreen = () => {
       supabase.removeChannel(followsSubscription);
     };
   }, [userId]);
+
+  const loadViewerGender = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('gender')
+          .eq('id', user.id)
+          .single();
+
+        if (data) {
+          setViewerGender(data.gender);
+        }
+      }
+    } catch (error) {
+      console.error('Error loading viewer gender:', error);
+    }
+  };
 
   const loadUserProfile = async () => {
     try {
@@ -99,11 +162,29 @@ const UserProfileScreen = () => {
           console.log('Fixed Cover URL:', coverUrl);
         }
 
-        setUserProfile({
+        const profile = {
           ...data,
           avatar_url: avatarUrl,
           cover_url: coverUrl
-        });
+        };
+        
+        setUserProfile(profile);
+
+        // Trigger blinking animation based on gender
+        if (viewerGender && profile.gender) {
+          let blinkColor;
+          if (profile.gender === 'third') {
+            blinkColor = '#00FF00'; // Green for third gender
+          } else if (viewerGender === 'male' && profile.gender === 'female') {
+            blinkColor = '#FF69B4'; // Pink when male views female
+          } else if (viewerGender === 'female' && profile.gender === 'male') {
+            blinkColor = '#ADD8E6'; // Light blue when female views male
+          }
+          
+          if (blinkColor) {
+            createBlinkAnimation(blinkColor);
+          }
+        }
       }
     } catch (error) {
       console.error('Error loading user profile:', error);
@@ -123,16 +204,30 @@ const UserProfileScreen = () => {
       : userProfile.bio;
 
     return (
-      <View style={styles.bioContainer}>
-        <Text style={styles.bioText}>
-          {displayBio}
-          {shouldTruncate && (
-            <Text 
-              style={styles.moreText}
-              onPress={() => setShowFullBio(true)}
-            > more</Text>
-          )}
-        </Text>
+      <View style={styles.container}>
+        <Animated.View
+          ref={blinkView}
+          style={[styles.blinkIndicator, {
+            backgroundColor: blinkAnimation.interpolate({
+              inputRange: [0, 1],
+              outputRange: ['transparent', userProfile?.gender === 'third' ? '#00FF00' : 
+                (viewerGender === 'male' && userProfile?.gender === 'female') ? '#FF69B4' : 
+                (viewerGender === 'female' && userProfile?.gender === 'male') ? '#ADD8E6' : 'transparent']
+            })
+          }]}
+        />
+
+        <View style={styles.bioContainer}>
+          <Text style={styles.bioText}>
+            {displayBio}
+            {shouldTruncate && (
+              <Text 
+                style={styles.moreText}
+                onPress={() => setShowFullBio(true)}
+              > more</Text>
+            )}
+          </Text>
+        </View>
       </View>
     );
   };
@@ -408,8 +503,16 @@ const UserProfileScreen = () => {
   );
 };
 
-
 const styles = StyleSheet.create({
+  blinkIndicator: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    zIndex: 999,
+  },
   container: {
     flex: 1,
     backgroundColor: '#000',

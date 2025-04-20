@@ -1,268 +1,179 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
-import OneSignal from 'react-native-onesignal';
+import { View, FlatList, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { supabase } from '../config/supabase';
+import { Ionicons } from '@expo/vector-icons';
 
-const NotificationsScreen = () => {
+const NotificationsScreen = ({ navigation }) => {
   const [notifications, setNotifications] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    initializeOneSignal();
     fetchNotifications();
+
+    // Subscribe to new notifications
+    const subscription = supabase
+      .channel('notifications')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'notifications',
+      }, handleNewNotification)
+      .subscribe();
+
+    return () => {
+      subscription.unsubscribe();
+    };
   }, []);
 
-  const initializeOneSignal = async () => {
+  const fetchNotifications = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Initialize OneSignal
-      OneSignal.setAppId('YOUR_ONESIGNAL_APP_ID');
-      
-      // Set external user ID (your Supabase user ID)
-      OneSignal.setExternalUserId(user.id);
+      const { data, error } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('recipient_id', user.id)
+        .order('created_at', { ascending: false });
 
-      // Handle notification opening
-      OneSignal.setNotificationOpenedHandler(notification => {
-        console.log('Notification opened:', notification);
-        // Handle navigation based on notification type
-        handleNotificationOpen(notification);
-      });
-
-      // Handle notifications received while app is running
-      OneSignal.setNotificationWillShowInForegroundHandler(notificationReceivedEvent => {
-        const notification = notificationReceivedEvent.getNotification();
-        // Update local notifications state
-        setNotifications(prev => [formatOneSignalNotification(notification), ...prev]);
-      });
-    } catch (error) {
-      console.error('Error initializing OneSignal:', error);
-    }
-  };
-
-  const formatOneSignalNotification = (notification) => {
-    return {
-      id: notification.notificationId,
-      type: notification.additionalData?.type || 'default',
-      user: notification.additionalData?.senderName || 'Unknown User',
-      action: notification.body,
-      time: formatTimestamp(new Date(notification.timestamp)),
-      avatar: notification.additionalData?.senderAvatar || 'https://via.placeholder.com/40',
-      isRead: false,
-      reference_id: notification.additionalData?.referenceId
-    };
-  };
-
-  const fetchNotifications = async () => {
-    try {
-      // Get notifications history from OneSignal
-      const notifications = await OneSignal.getNotifications();
-      const formattedNotifications = notifications.map(formatOneSignalNotification);
-      setNotifications(formattedNotifications);
+      if (error) throw error;
+      setNotifications(data || []);
     } catch (error) {
       console.error('Error fetching notifications:', error);
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   };
 
-  const formatTimestamp = (timestamp) => {
-    const date = new Date(timestamp);
-    const now = new Date();
-    const diff = Math.floor((now - date) / 1000); // difference in seconds
-
-    if (diff < 60) return `${diff} sec ago`;
-    if (diff < 3600) return `${Math.floor(diff / 60)} min ago`;
-    if (diff < 86400) return `${Math.floor(diff / 3600)} hours ago`;
-    return `${Math.floor(diff / 86400)} days ago`;
+  const handleNewNotification = (payload) => {
+    const newNotification = payload.new;
+    setNotifications(current => [newNotification, ...current]);
   };
 
-  const handleNotificationPress = async (notification) => {
-    try {
-      // Mark as read in OneSignal
-      await OneSignal.markNotificationAsRead(notification.id);
-      
-      // Update local state
-      setNotifications(prev =>
-        prev.map(notif =>
-          notif.id === notification.id
-            ? { ...notif, isRead: true }
-            : notif
-        )
-      );
-
-      // Handle navigation based on notification type
-      if (notification.reference_id) {
-        // Navigate to specific screen based on notification type
-      }
-    } catch (error) {
-      console.error('Error handling notification:', error);
+  const handleNotificationPress = (notification) => {
+    // Navigate based on notification type
+    switch (notification.type) {
+      case 'like':
+        navigation.navigate('PostScreen', { postId: notification.data.postId });
+        break;
+      case 'comment':
+        navigation.navigate('PostScreen', { 
+          postId: notification.data.postId,
+          commentId: notification.data.commentId 
+        });
+        break;
+      case 'confession':
+        navigation.navigate('ConfessionScreen', { 
+          confessionId: notification.data.confessionId 
+        });
+        break;
+      default:
+        break;
     }
   };
 
-  const onRefresh = React.useCallback(() => {
-    setRefreshing(true);
-    fetchNotifications();
-  }, []);
+  const renderNotification = ({ item }) => {
+    let icon = 'notifications-outline';
+    switch (item.type) {
+      case 'like':
+        icon = 'heart-outline';
+        break;
+      case 'comment':
+        icon = 'chatbubble-outline';
+        break;
+      case 'confession':
+        icon = 'mail-outline';
+        break;
+    }
+
+    return (
+      <TouchableOpacity 
+        style={styles.notificationItem}
+        onPress={() => handleNotificationPress(item)}
+      >
+        <View style={styles.iconContainer}>
+          <Ionicons name={icon} size={24} color="#3399ff" />
+        </View>
+        <View style={styles.contentContainer}>
+          <Text style={styles.message}>{item.message}</Text>
+          <Text style={styles.timestamp}>
+            {new Date(item.created_at).toLocaleDateString()}
+          </Text>
+        </View>
+      </TouchableOpacity>
+    );
+  };
 
   if (loading) {
     return (
-      <View style={[styles.container, styles.centerContent]}>
-        <ActivityIndicator size="large" color="#1DA1F2" />
+      <View style={styles.container}>
+        <Text>Loading notifications...</Text>
       </View>
     );
   }
 
-
-
-  const getNotificationIcon = (type) => {
-    switch (type) {
-      case 'like':
-        return 'heart';
-      case 'comment':
-        return 'chatbubble';
-      case 'follow':
-        return 'person-add';
-      case 'mention':
-        return 'at';
-      default:
-        return 'notifications';
-    }
-  };
-
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
-        <Text style={styles.headerTitle}>Notifications</Text>
-      </View>
-
-      <ScrollView 
-        style={styles.notificationsList}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor="#1DA1F2"
-          />
-        }
-      >
-        {notifications.length === 0 ? (
-          <View style={styles.emptyState}>
-            <Ionicons name="notifications-off-outline" size={48} color="#666" />
-            <Text style={styles.emptyStateText}>No notifications yet</Text>
+      <FlatList
+        data={notifications}
+        renderItem={renderNotification}
+        keyExtractor={(item) => item.id.toString()}
+        contentContainerStyle={styles.listContainer}
+        ListEmptyComponent={
+          <View style={styles.emptyContainer}>
+            <Text style={styles.emptyText}>No notifications yet</Text>
           </View>
-        ) : (
-          notifications.map((notification) => (
-            <TouchableOpacity
-              key={notification.id}
-              style={[
-                styles.notificationItem,
-                !notification.isRead && styles.unreadNotification,
-              ]}
-              onPress={() => handleNotificationPress(notification)}
-            >
-              <Image source={{ uri: notification.avatar }} style={styles.avatar} />
-              <View style={styles.notificationContent}>
-                <View style={styles.notificationHeader}>
-                  <Text style={styles.username}>{notification.user}</Text>
-                  <Text style={styles.time}>{notification.time}</Text>
-                </View>
-                <Text style={styles.actionText}>{notification.action}</Text>
-              </View>
-              <View style={styles.iconContainer}>
-                <Ionicons
-                  name={getNotificationIcon(notification.type)}
-                  size={20}
-                  color="#1DA1F2"
-                />
-              </View>
-            </TouchableOpacity>
-          ))
-        )}
-      </ScrollView>
+        }
+      />
     </View>
   );
 };
 
 const styles = StyleSheet.create({
-  centerContent: {
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  emptyState: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: 40,
-  },
-  emptyStateText: {
-    color: '#666',
-    fontSize: 16,
-    marginTop: 10,
-  },
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#fff',
   },
-  header: {
-    padding: 15,
-    paddingTop: 50,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
-  },
-  headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: 'white',
-  },
-  notificationsList: {
-    flex: 1,
+  listContainer: {
+    padding: 16,
   },
   notificationItem: {
     flexDirection: 'row',
-    padding: 15,
+    padding: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
+    borderBottomColor: '#f0f0f0',
     alignItems: 'center',
   },
-  unreadNotification: {
-    backgroundColor: 'rgba(29, 161, 242, 0.1)',
-  },
-  avatar: {
+  iconContainer: {
     width: 40,
     height: 40,
     borderRadius: 20,
+    backgroundColor: '#f0f8ff',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
   },
-  notificationContent: {
+  contentContainer: {
     flex: 1,
-    marginLeft: 15,
   },
-  notificationHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
+  message: {
+    fontSize: 14,
+    color: '#333',
+    marginBottom: 4,
   },
-  username: {
-    color: 'white',
-    fontWeight: '600',
-    fontSize: 16,
-  },
-  time: {
-    color: '#666',
+  timestamp: {
     fontSize: 12,
-  },
-  actionText: {
     color: '#999',
-    marginTop: 4,
   },
-  iconContainer: {
-    marginLeft: 10,
-    width: 40,
+  emptyContainer: {
+    flex: 1,
+    justifyContent: 'center',
     alignItems: 'center',
+    paddingVertical: 32,
+  },
+  emptyText: {
+    fontSize: 16,
+    color: '#999',
   },
 });
 

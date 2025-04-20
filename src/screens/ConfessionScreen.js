@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect } from 'react';
 import { 
   View, 
@@ -362,8 +361,8 @@ const ConfessionScreen = () => {
         .order('created_at', { ascending: false })
         .limit(50); // Limit to latest 50 confessions
 
-      // Handle both original and clean location IDs using proper SQL array syntax
-      query = query.in('location_id', [locationId, cleanLocationId]);
+      // Handle both original and clean location IDs
+      query = query.or(`location_id.eq.${locationId},location_id.eq.${cleanLocationId}`);
       
       const { data: confessionsData, error: confessionsError } = await query;
   
@@ -921,8 +920,8 @@ const ConfessionScreen = () => {
               </TouchableOpacity>
               
               
- {/* Debug button to check confessions in database */}
- 
+
+              
             </>
           )}
           
@@ -1544,4 +1543,3 @@ const styles = StyleSheet.create({
 });
 
 export default ConfessionScreen;
-
