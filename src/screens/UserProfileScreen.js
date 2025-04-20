@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, ActivityIn
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { supabase } from '../config/supabase';
+import ProfileViewBlinker from '../components/ProfileViewBlinker';
 
 const UserProfileScreen = () => {
   const [userProfile, setUserProfile] = useState(null);
@@ -10,19 +11,18 @@ const UserProfileScreen = () => {
   const [showFullBio, setShowFullBio] = useState(false);
   const [viewerGender, setViewerGender] = useState(null);
   const blinkAnimation = useRef(new Animated.Value(0)).current;
-  const blinkView = useRef(null);
 
   // Function to create blinking animation
   const createBlinkAnimation = (color) => {
     Animated.sequence([
       Animated.timing(blinkAnimation, {
         toValue: 1,
-        duration: 300,
+        duration: 1000,
         useNativeDriver: false,
       }),
       Animated.timing(blinkAnimation, {
         toValue: 0,
-        duration: 300,
+        duration: 1000,
         useNativeDriver: false,
       }),
     ]).start(() => {
@@ -30,22 +30,22 @@ const UserProfileScreen = () => {
       Animated.sequence([
         Animated.timing(blinkAnimation, {
           toValue: 1,
-          duration: 300,
+          duration: 1000,
           useNativeDriver: false,
         }),
         Animated.timing(blinkAnimation, {
           toValue: 0,
-          duration: 300,
+          duration: 1000,
           useNativeDriver: false,
         }),
         Animated.timing(blinkAnimation, {
           toValue: 1,
-          duration: 300,
+          duration: 1000,
           useNativeDriver: false,
         }),
         Animated.timing(blinkAnimation, {
           toValue: 0,
-          duration: 300,
+          duration: 1000,
           useNativeDriver: false,
         }),
       ]).start();
@@ -205,18 +205,6 @@ const UserProfileScreen = () => {
 
     return (
       <View style={styles.container}>
-        <Animated.View
-          ref={blinkView}
-          style={[styles.blinkIndicator, {
-            backgroundColor: blinkAnimation.interpolate({
-              inputRange: [0, 1],
-              outputRange: ['transparent', userProfile?.gender === 'third' ? '#00FF00' : 
-                (viewerGender === 'male' && userProfile?.gender === 'female') ? '#FF69B4' : 
-                (viewerGender === 'female' && userProfile?.gender === 'male') ? '#ADD8E6' : 'transparent']
-            })
-          }]}
-        />
-
         <View style={styles.bioContainer}>
           <Text style={styles.bioText}>
             {displayBio}
@@ -359,6 +347,10 @@ const UserProfileScreen = () => {
 
   return (
     <View style={styles.container}>
+      <ProfileViewBlinker 
+        gender={userProfile?.gender} 
+        viewerGender={viewerGender} 
+      />
       {/* Add back button at the top */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()}>
