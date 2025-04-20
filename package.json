@@ -20,7 +20,9 @@
     "@supabase/supabase-js": "^2.49.4",
     "base-64": "^1.0.0",
     "base64-arraybuffer": "^1.0.2",
+    "crypto-js": "^4.2.0",
     "expo": "~52.0.42",
+    "expo-av": "~15.0.2",
     "expo-blur": "~14.0.3",
     "expo-file-system": "~18.0.12",
     "expo-image-manipulator": "~13.0.6",
@@ -29,7 +31,7 @@
     "expo-location": "~18.0.10",
     "expo-status-bar": "~2.0.1",
     "nanoid": "^5.1.5",
-    "onesignal-expo-plugin": "^1.3.2",
+    "onesignal-expo-plugin": "^1.1.2",
     "react": "18.3.1",
     "react-native": "0.76.9",
     "react-native-onesignal": "^5.2.9",
@@ -39,7 +41,8 @@
     "react-native-webview": "^13.13.5"
   },
   "devDependencies": {
-    "@babel/core": "^7.20.0"
+    "@babel/core": "^7.20.0",
+    "react-native-dotenv": "^3.4.11"
   },
   "private": true
 }

@@ -1,21 +1,74 @@
 
 
 
-import React from 'react';
-import { StyleSheet, View, Text, ScrollView, TouchableOpacity, TextInput, Image } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { StyleSheet, View, Text, ScrollView, TouchableOpacity, TextInput, Image, Modal, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts, Poppins_700Bold } from '@expo-google-fonts/poppins';
-import { useNavigation } from '@react-navigation/native'; // Add this import
-
-// Add these new imports at the top
+import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
+import * as ImagePicker from 'expo-image-picker';
+import { StoriesService } from '../services/StoriesService';
+import { Video } from 'expo-av';
 
 const HomeScreen = () => {
-  const navigation = useNavigation(); // Add this line
+  const navigation = useNavigation();
+  const [stories, setStories] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [selectedStory, setSelectedStory] = useState(null);
+  const [viewerVisible, setViewerVisible] = useState(false);
+  
   let [fontsLoaded] = useFonts({
     Poppins_700Bold,
   });
+
+  useEffect(() => {
+    loadStories();
+  }, []);
+
+  const loadStories = async () => {
+    try {
+      const data = await StoriesService.getActiveStories();
+      setStories(data);
+    } catch (error) {
+      console.error('Error loading stories:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleAddStory = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        allowsEditing: true,
+        quality: 1,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setUploading(true);
+        const uri = result.assets[0].uri;
+        const type = uri.endsWith('.mp4') ? 'video' : 'image';
+        
+        await StoriesService.uploadStory(uri, type);
+        await loadStories();
+        
+        Alert.alert('Success', 'Story uploaded successfully');
+      }
+    } catch (error) {
+      console.error('Error adding story:', error);
+      Alert.alert('Error', 'Failed to upload story');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleStoryPress = (story) => {
+    setSelectedStory(story);
+    setViewerVisible(true);
+  };
 
   if (!fontsLoaded) {
     return null;
@@ -84,23 +137,75 @@ const HomeScreen = () => {
 
         <View style={styles.stories}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
-            <TouchableOpacity style={styles.storyItem}>
+            <TouchableOpacity style={styles.storyItem} onPress={handleAddStory} disabled={uploading}>
               <View style={styles.addStoryButton}>
-                <Ionicons name="add" size={24} color="#800060" />
+                {uploading ? (
+                  <ActivityIndicator size="small" color="#ff00ff" />
+                ) : (
+                  <Ionicons name="add" size={24} color="#ff00ff" />
+                )}
               </View>
               <Text style={styles.storyText}>Share Story</Text>
             </TouchableOpacity>
-            {['Jone', 'Smith', 'Kriston'].map((name) => (
-              <TouchableOpacity key={name} style={styles.storyItem}>
-                <Image
-                  style={styles.storyAvatar}
-                  source={{ uri: 'https://via.placeholder.com/60' }}
-                />
-                <Text style={styles.storyText}>{name}</Text>
+            {stories.map((story) => (
+              <TouchableOpacity 
+                key={story.id} 
+                style={styles.storyItem} 
+                onPress={() => handleStoryPress(story)}
+              >
+                <LinearGradient
+                  colors={['#ff00ff', '#00ff00', '#ff00ff']}
+                  style={styles.storyRing}
+                >
+                  <Image
+                    style={styles.storyAvatar}
+                    source={{ uri: story.profiles.avatar_url || 'https://via.placeholder.com/60' }}
+                  />
+                </LinearGradient>
+                <Text style={styles.storyText}>{story.profiles.username}</Text>
               </TouchableOpacity>
             ))}
           </ScrollView>
         </View>
+
+        {/* Story Viewer Modal */}
+        <Modal
+          visible={viewerVisible}
+          transparent={false}
+          animationType="slide"
+        >
+          <View style={styles.viewerContainer}>
+            <TouchableOpacity
+              style={styles.closeButton}
+              onPress={() => {
+                setViewerVisible(false);
+                setSelectedStory(null);
+              }}
+            >
+              <Ionicons name="close" size={30} color="#fff" />
+            </TouchableOpacity>
+
+            {selectedStory && (
+              <View style={styles.storyContent}>
+                {selectedStory.type === 'video' ? (
+                  <Video
+                    source={{ uri: selectedStory.media_url }}
+                    style={styles.storyMedia}
+                    resizeMode="contain"
+                    shouldPlay
+                    isLooping
+                  />
+                ) : (
+                  <Image
+                    source={{ uri: selectedStory.media_url }}
+                    style={styles.storyMedia}
+                    resizeMode="contain"
+                  />
+                )}
+              </View>
+            )}
+          </View>
+        </Modal>
 
         <View style={styles.feed}>
           {/* Sample Post */}
@@ -256,17 +361,45 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: '#1DA1F2', // Changed to match the theme
   },
+  storyRing: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    padding: 4,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
   storyAvatar: {
     width: 60,
     height: 60,
     borderRadius: 30,
     borderWidth: 2,
-    borderColor: '#ff00ff',
+    borderColor: '#000',
   },
   storyText: {
     marginTop: 5,
     fontSize: 12,
     color: '#ff00ff',
+  },
+  viewerContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+    justifyContent: 'center',
+  },
+  closeButton: {
+    position: 'absolute',
+    top: 40,
+    right: 20,
+    zIndex: 1,
+  },
+  storyContent: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  storyMedia: {
+    width: '100%',
+    height: '100%',
   },
   feed: {
     padding: 15,
