@@ -33,9 +33,15 @@ const ProfileViewBlinker = ({ gender, viewerGender }) => {
   if (!gender || !viewerGender) return null;
   
   let color;
-  if (gender === 'male') color = '#ADD8E6'; // Light blue
-  else if (gender === 'female') color = '#FFC0CB'; // Pink
-  else color = '#90EE90'; // Light green
+  if (gender === 'third' && viewerGender === 'third') {
+    color = '#90EE90'; // Light green only when both are third gender
+  } else if (gender === 'male') {
+    color = '#ADD8E6'; // Light blue
+  } else if (gender === 'female') {
+    color = '#FFC0CB'; // Pink
+  } else {
+    return null; // Don't show blinker for other cases
+  }
   
   const backgroundColor = blinkColor.interpolate({
     inputRange: [0, 1],
