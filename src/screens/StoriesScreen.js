@@ -1,22 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Image,
-  Dimensions,
+import { 
+  StyleSheet, 
+  View, 
+  Text, 
+  Image, 
+  TouchableOpacity, 
+  Dimensions, 
+  StatusBar,
+  Alert,
   ActivityIndicator,
   Modal,
-  StatusBar,
-  Animated,
-  Alert
+  Platform
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
-import { LinearGradient } from 'expo-linear-gradient';
-import { StoriesService } from '../services/StoriesService';
+import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useRoute } from '@react-navigation/native';
+import { StoriesService } from '../services/StoriesService';
+import { LinearGradient } from 'expo-linear-gradient';
+import { supabase } from '../config/supabase';
 
 const { width, height } = Dimensions.get('window');
 
@@ -24,68 +25,61 @@ const StoriesScreen = () => {
   const navigation = useNavigation();
   const route = useRoute();
   const { storyGroupId, userId, initialStoryIndex = 0 } = route.params || {};
-
+  
+  const [stories, setStories] = useState([]);
+  const [currentIndex, setCurrentIndex] = useState(initialStoryIndex);
   const [loading, setLoading] = useState(true);
-  const [currentUserIndex, setCurrentUserIndex] = useState(0);
-  const [currentStoryIndex, setCurrentStoryIndex] = useState(initialStoryIndex);
-  const [storyGroups, setStoryGroups] = useState([]);
   const [progress, setProgress] = useState(0);
-  const progressAnim = useRef(new Animated.Value(0)).current;
+  const [paused, setPaused] = useState(false);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [userInfo, setUserInfo] = useState(null);
+  
   const videoRef = useRef(null);
+  const progressInterval = useRef(null);
   const storyTimeout = useRef(null);
-  const [timeRemaining, setTimeRemaining] = useState(5);
-  const timerInterval = useRef(null);
-
-  // Duration for image stories
-  const STORY_DURATION = 5000; // 5 seconds
-
+  
+  // Load stories when component mounts
   useEffect(() => {
     loadStories();
+    
+    // Cleanup on unmount
     return () => {
-      // Clear any timeouts when component unmounts
-      if (storyTimeout.current) {
-        clearTimeout(storyTimeout.current);
-      }
-      if (timerInterval.current) {
-        clearInterval(timerInterval.current);
-      }
+      clearInterval(progressInterval.current);
+      clearTimeout(storyTimeout.current);
     };
   }, []);
-
+  
+  // Handle story progress and auto-advance
   useEffect(() => {
-    // Reset progress when story changes
-    progressAnim.setValue(0);
-    setProgress(0);
-    startProgress();
-  }, [currentUserIndex, currentStoryIndex]);
-
+    if (stories.length > 0 && !loading) {
+      // Mark story as viewed
+      markStoryAsViewed();
+      
+      // Reset progress
+      setProgress(0);
+      
+      // Clear previous intervals/timeouts
+      clearInterval(progressInterval.current);
+      clearTimeout(storyTimeout.current);
+      
+      // Start progress for current story
+      startProgress();
+    }
+  }, [currentIndex, stories, loading]);
+  
   const loadStories = async () => {
     try {
       setLoading(true);
-      const data = await StoriesService.getActiveStories();
       
-      if (data.length === 0) {
-        Alert.alert('No Stories', 'There are no active stories to view');
+      // Get stories for the specific user/group
+      const data = await StoriesService.getUserStories(userId);
+      
+      if (data && data.length > 0) {
+        setStories(data);
+        setUserInfo(data[0].user);
+      } else {
+        // No stories found, go back
         navigation.goBack();
-        return;
-      }
-      
-      setStoryGroups(data);
-      
-      // If storyGroupId is provided, find the index of that group
-      if (storyGroupId) {
-        const groupIndex = data.findIndex(group => 
-          group.stories.some(story => story.story_group_id === storyGroupId)
-        );
-        if (groupIndex !== -1) {
-          setCurrentUserIndex(groupIndex);
-        }
-      } else if (userId) {
-        // If userId is provided, find the index of that user's stories
-        const groupIndex = data.findIndex(group => group.user_id === userId);
-        if (groupIndex !== -1) {
-          setCurrentUserIndex(groupIndex);
-        }
       }
     } catch (error) {
       console.error('Error loading stories:', error);
@@ -95,169 +89,137 @@ const StoriesScreen = () => {
       setLoading(false);
     }
   };
-
-  const startProgress = () => {
-    if (storyGroups.length === 0) return;
-    
-    const currentStory = storyGroups[currentUserIndex]?.stories[currentStoryIndex];
-    if (!currentStory) return;
-    
-    // Clear any existing timeout and interval
-    if (storyTimeout.current) {
-      clearTimeout(storyTimeout.current);
-    }
-    if (timerInterval.current) {
-      clearInterval(timerInterval.current);
-    }
-    
-    // Mark the story as viewed
-    StoriesService.markStoryAsViewed(currentStory.id);
-    
-    // Reset timer to 5 seconds for images, or use video duration
-    const duration = currentStory.type === 'video' ? 30 : 5; // in seconds
-    setTimeRemaining(duration);
-    
-    // Start animation
-    Animated.timing(progressAnim, {
-      toValue: 1,
-      duration: currentStory.type === 'video' ? 30000 : STORY_DURATION, // Use longer duration for videos as a fallback
-      useNativeDriver: false,
-    }).start(({ finished }) => {
-      if (finished) {
-        nextStory();
-      }
-    });
-    
-    // For images, use a timeout as backup and start the timer countdown
-    if (currentStory.type === 'image') {
-      storyTimeout.current = setTimeout(() => {
-        nextStory();
-      }, STORY_DURATION);
-      
-      // Update the timer every second
-      timerInterval.current = setInterval(() => {
-        setTimeRemaining(prev => {
-          if (prev <= 1) {
-            clearInterval(timerInterval.current);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-  };
-
-  const nextStory = () => {
-    const currentGroup = storyGroups[currentUserIndex];
-    if (!currentGroup) return;
-    
-    if (currentStoryIndex < currentGroup.stories.length - 1) {
-      // Move to next story in current user's stories
-      setCurrentStoryIndex(currentStoryIndex + 1);
-    } else {
-      // Move to next user's stories
-      if (currentUserIndex < storyGroups.length - 1) {
-        setCurrentUserIndex(currentUserIndex + 1);
-        setCurrentStoryIndex(0);
-      } else {
-        // End of all stories, go back
-        navigation.goBack();
+  
+  const markStoryAsViewed = async () => {
+    if (stories.length > 0 && currentIndex < stories.length) {
+      try {
+        await StoriesService.markStoryAsViewed(stories[currentIndex].id);
+      } catch (error) {
+        console.error('Error marking story as viewed:', error);
       }
     }
-  };
-
-  const prevStory = () => {
-    if (currentStoryIndex > 0) {
-      // Move to previous story in current user's stories
-      setCurrentStoryIndex(currentStoryIndex - 1);
-    } else {
-      // Move to previous user's last story
-      if (currentUserIndex > 0) {
-        const prevUserIndex = currentUserIndex - 1;
-        const prevUserStories = storyGroups[prevUserIndex].stories;
-        setCurrentUserIndex(prevUserIndex);
-        setCurrentStoryIndex(prevUserStories.length - 1);
-      }
-      // If we're at the first story of the first user, do nothing
-    }
-  };
-
-  const handlePress = (event) => {
-    // Pause the progress
-    progressAnim.stopAnimation();
-    if (storyTimeout.current) {
-      clearTimeout(storyTimeout.current);
-    }
-    if (timerInterval.current) {
-      clearInterval(timerInterval.current);
-    }
-    
-    // Determine if press was on left or right side of screen
-    const x = event.nativeEvent.locationX;
-    if (x < width / 2) {
-      // Left side - go to previous story
-      prevStory();
-    } else {
-      // Right side - go to next story
-      nextStory();
-    }
-  };
-
-  const handleVideoRef = (ref) => {
-    videoRef.current = ref;
-    if (ref) {
-      ref.playAsync();
-    }
-  };
-
-  const handleVideoPlaybackStatusUpdate = (status) => {
-    if (status.isLoaded && status.isPlaying) {
-      // Update progress based on video position
-      const progress = status.positionMillis / status.durationMillis;
-      setProgress(progress);
-      
-      // When video ends, move to next story
-      if (status.didJustFinish) {
-        nextStory();
-      }
-    }
-  };
-
-  const renderProgressBars = () => {
-    const currentGroup = storyGroups[currentUserIndex];
-    if (!currentGroup) return null;
-    
-    return (
-      <View style={styles.progressContainer}>
-        {currentGroup.stories.map((story, index) => (
-          <View key={story.id} style={styles.progressBarContainer}>
-            <Animated.View 
-              style={[styles.progressBar, {
-                width: index === currentStoryIndex 
-                  ? progressAnim.interpolate({
-                      inputRange: [0, 1],
-                      outputRange: ['0%', '100%']
-                    })
-                  : index < currentStoryIndex ? '100%' : '0%'
-              }]}
-            />
-          </View>
-        ))}
-      </View>
-    );
   };
   
-  // Render the timer indicator showing seconds remaining
-  const renderTimer = () => {
-    if (!storyGroups[currentUserIndex]?.stories[currentStoryIndex]) return null;
+  const startProgress = () => {
+    // Duration for each story (5 seconds)
+    const storyDuration = 5000;
+    const updateInterval = 50; // Update progress every 50ms
+    const incrementValue = updateInterval / storyDuration;
     
-    return (
-      <Text style={styles.timerText}>
-        {timeRemaining}s
-      </Text>
-    );
+    // Start progress interval
+    progressInterval.current = setInterval(() => {
+      if (!paused) {
+        setProgress(prev => {
+          const newProgress = prev + incrementValue;
+          return newProgress >= 1 ? 1 : newProgress;
+        });
+      }
+    }, updateInterval);
+    
+    // Set timeout to move to next story
+    storyTimeout.current = setTimeout(() => {
+      if (!paused) {
+        goToNextStory();
+      }
+    }, storyDuration);
   };
-
+  
+  const goToPreviousStory = () => {
+    if (currentIndex > 0) {
+      setCurrentIndex(currentIndex - 1);
+    } else {
+      // If at first story, go back to previous user's stories or exit
+      navigation.goBack();
+    }
+  };
+  
+  const goToNextStory = () => {
+    if (currentIndex < stories.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+    } else {
+      // If at last story, go back to home
+      navigation.goBack();
+    }
+  };
+  
+  const handlePress = (event) => {
+    const { locationX } = event.nativeEvent;
+    
+    // Determine if press is on left or right side of screen
+    if (locationX < width / 3) {
+      // Left side - go to previous story
+      goToPreviousStory();
+    } else if (locationX > (width * 2) / 3) {
+      // Right side - go to next story
+      goToNextStory();
+    } else {
+      // Middle - pause/play
+      setPaused(!paused);
+      
+      if (videoRef.current) {
+        if (paused) {
+          videoRef.current.playAsync();
+        } else {
+          videoRef.current.pauseAsync();
+        }
+      }
+    }
+  };
+  
+  const handleDeleteStory = async () => {
+    try {
+      setMenuVisible(false);
+      setPaused(true);
+      
+      // Show confirmation dialog
+      Alert.alert(
+        'Delete Story',
+        'Are you sure you want to delete this story?',
+        [
+          {
+            text: 'Cancel',
+            onPress: () => setPaused(false),
+            style: 'cancel',
+          },
+          {
+            text: 'Delete',
+            onPress: async () => {
+              try {
+                await StoriesService.deleteStory(stories[currentIndex].id);
+                
+                // If this was the only story, go back
+                if (stories.length === 1) {
+                  navigation.goBack();
+                } else {
+                  // Remove the deleted story from the array
+                  const updatedStories = [...stories];
+                  updatedStories.splice(currentIndex, 1);
+                  
+                  // Update stories array
+                  setStories(updatedStories);
+                  
+                  // Adjust current index if needed
+                  if (currentIndex >= updatedStories.length) {
+                    setCurrentIndex(updatedStories.length - 1);
+                  }
+                }
+              } catch (error) {
+                console.error('Error deleting story:', error);
+                Alert.alert('Error', 'Failed to delete story');
+                setPaused(false);
+              }
+            },
+            style: 'destructive',
+          },
+        ],
+        { cancelable: false }
+      );
+    } catch (error) {
+      console.error('Error handling delete:', error);
+      setPaused(false);
+    }
+  };
+  
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -265,72 +227,115 @@ const StoriesScreen = () => {
       </View>
     );
   }
-
-  if (storyGroups.length === 0) {
-    return null; // This will be handled in loadStories with navigation.goBack()
+  
+  if (stories.length === 0) {
+    return null; // This should not happen as we navigate back if no stories
   }
-
-  const currentGroup = storyGroups[currentUserIndex];
-  const currentStory = currentGroup?.stories[currentStoryIndex];
-
-  if (!currentStory) {
-    return null;
-  }
-
+  
+  const currentStory = stories[currentIndex];
+  
   return (
     <View style={styles.container}>
       <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
       
-      {/* Progress bars at top */}
-      {renderProgressBars()}
-      
-      {/* User info */}
-      <View style={styles.header}>
-        <View style={styles.userInfo}>
-          <Image 
-            source={{ uri: currentGroup.user.avatar_url || 'https://via.placeholder.com/40' }} 
-            style={styles.avatar} 
-          />
-          <Text style={styles.username}>{currentGroup.user.username}</Text>
-          <Text style={styles.timestamp}>
-            {new Date(currentStory.created_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-          </Text>
-          {renderTimer()}
-        </View>
-        
-        <TouchableOpacity 
-          style={styles.closeButton} 
-          onPress={() => navigation.goBack()}
-          hitSlop={{top: 15, bottom: 15, left: 15, right: 15}}
-        >
-          <Ionicons name="close-circle" size={36} color="#fff" />
-        </TouchableOpacity>
-      </View>
-      
-      {/* Story content */}
+      {/* Story Content */}
       <TouchableOpacity 
         activeOpacity={1} 
-        style={styles.storyContainer} 
+        style={styles.storyContainer}
         onPress={handlePress}
       >
-        {currentStory.type === 'video' ? (
-          <Video
-            ref={handleVideoRef}
-            source={{ uri: currentStory.media_url }}
-            style={styles.media}
-            resizeMode="contain"
-            shouldPlay
-            isLooping={false}
-            onPlaybackStatusUpdate={handleVideoPlaybackStatusUpdate}
-          />
-        ) : (
-          <Image
-            source={{ uri: currentStory.media_url }}
-            style={styles.media}
-            resizeMode="contain"
-          />
-        )}
+        {/* Progress Bar */}
+        <View style={styles.progressContainer}>
+          {stories.map((_, index) => (
+            <View key={index} style={styles.progressBarBackground}>
+              <View 
+                style={[styles.progressBar, { 
+                  width: index === currentIndex ? `${progress * 100}%` : index < currentIndex ? '100%' : '0%' 
+                }]}
+              />
+            </View>
+          ))}
+        </View>
+        
+        {/* User Info */}
+        <View style={styles.header}>
+          <View style={styles.userInfo}>
+            <Image 
+              source={{ uri: userInfo?.avatar_url || 'https://via.placeholder.com/40' }} 
+              style={styles.avatar} 
+            />
+            <Text style={styles.username}>{userInfo?.username}</Text>
+            <Text style={styles.timestamp}>
+              {new Date(currentStory?.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </Text>
+          </View>
+          
+          {/* Menu Button (only show for user's own stories) */}
+          {currentStory.user_id === userId && (
+            <TouchableOpacity 
+              style={styles.menuButton}
+              onPress={() => {
+                setPaused(true);
+                setMenuVisible(true);
+              }}
+            >
+              <Ionicons name="ellipsis-vertical" size={24} color="#fff" />
+            </TouchableOpacity>
+          )}
+        </View>
+        
+        {/* Story Media */}
+        <View style={styles.mediaContainer}>
+          {currentStory.type === 'video' ? (
+            <Video
+              ref={videoRef}
+              source={{ uri: currentStory.media_url }}
+              style={styles.media}
+              resizeMode="contain"
+              shouldPlay={!paused}
+              isLooping={false}
+              onPlaybackStatusUpdate={(status) => {
+                if (status.didJustFinish) {
+                  goToNextStory();
+                }
+              }}
+            />
+          ) : (
+            <Image
+              source={{ uri: currentStory.media_url }}
+              style={styles.media}
+              resizeMode="contain"
+            />
+          )}
+        </View>
       </TouchableOpacity>
+      
+      {/* Menu Modal */}
+      <Modal
+        visible={menuVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setMenuVisible(false);
+          setPaused(false);
+        }}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            setMenuVisible(false);
+            setPaused(false);
+          }}
+        >
+          <View style={styles.menuContainer}>
+            <TouchableOpacity style={styles.menuItem} onPress={handleDeleteStory}>
+              <Ionicons name="trash-outline" size={24} color="#ff3b30" />
+              <Text style={[styles.menuItemText, { color: '#ff3b30' }]}>Delete Story</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </View>
   );
 };
@@ -346,18 +351,103 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: '#000',
   },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 15,
+    paddingTop: Platform.OS === 'ios' ? 50 : 40, // Extra padding for iOS notch
+    paddingBottom: 10,
+  },
+  userInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  avatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    marginRight: 10,
+  },
+  username: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  menuButton: {
+    padding: 5,
+  },
+  progressContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 10,
+    paddingTop: 10,
+    gap: 5,
+  },
+  progressBar: {
+    flex: 1,
+    height: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 1,
+    overflow: 'hidden',
+  },
+  progress: {
+    height: '100%',
+    borderRadius: 1,
+  },
+  content: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  media: {
+    width: '100%',
+    height: '100%',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  menuContainer: {
+    backgroundColor: '#1a1a1a',
+    borderTopLeftRadius: 15,
+    borderTopRightRadius: 15,
+    padding: 20,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 15,
+  },
+  menuText: {
+    fontSize: 16,
+    marginLeft: 15,
+    color: '#fff',
+  },
+  container: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#000',
+  },
+  storyContainer: {
+    flex: 1,
+  },
   progressContainer: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     paddingHorizontal: 8,
-    paddingTop: 50, // For status bar
+    paddingTop: 50, // Extra padding to avoid notch
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     zIndex: 10,
   },
-  progressBarContainer: {
+  progressBarBackground: {
     flex: 1,
     height: 3,
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
@@ -371,10 +461,15 @@ const styles = StyleSheet.create({
   },
   header: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
+    justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 10,
+    paddingTop: 60, // Extra padding to avoid notch
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 5,
   },
   userInfo: {
     flexDirection: 'row',
@@ -385,8 +480,6 @@ const styles = StyleSheet.create({
     height: 32,
     borderRadius: 16,
     marginRight: 8,
-    borderWidth: 1,
-    borderColor: '#fff',
   },
   username: {
     color: '#fff',
@@ -398,36 +491,10 @@ const styles = StyleSheet.create({
     color: 'rgba(255, 255, 255, 0.7)',
     fontSize: 12,
   },
-  closeButton: {
-    padding: 5,
-    zIndex: 10,
-    elevation: 5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3,
-    shadowRadius: 3,
+  menuButton: {
+    padding: 8,
   },
-  timerText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-    marginLeft: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-  },
-  timerText: {
-    color: '#fff',
-    fontSize: 14,
-    fontWeight: 'bold',
-    marginLeft: 10,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 10,
-  },
-  storyContainer: {
+  mediaContainer: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
@@ -435,6 +502,28 @@ const styles = StyleSheet.create({
   media: {
     width: '100%',
     height: '100%',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  menuContainer: {
+    backgroundColor: '#1a1a1a',
+    borderTopLeftRadius: 15,
+    borderTopRightRadius: 15,
+    paddingVertical: 20,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+  },
+  menuItemText: {
+    fontSize: 16,
+    marginLeft: 12,
+    color: '#fff',
   },
 });
 

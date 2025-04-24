@@ -1,5 +1,13 @@
 import { supabase } from '../config/supabase';
 import { uploadToCloudinary, deleteFromCloudinary } from '../config/cloudinary';
+// UUID generator compatible with Supabase UUID type
+const generateUUID = () => {
+  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+    const r = Math.random() * 16 | 0;
+    const v = c === 'x' ? r : (r & 0x3 | 0x8);
+    return v.toString(16);
+  });
+};
 
 export class StoriesService {
   // Get all active stories grouped by user
@@ -102,8 +110,8 @@ export class StoriesService {
         storyGroupId = existingStories[0].story_group_id;
         isFirstStory = false;
       } else {
-        // Generate a new UUID for story_group_id
-        storyGroupId = crypto.randomUUID();
+        // Generate a unique ID for story group using custom generator
+        storyGroupId = generateUUID();
       }
       
       // Save story to Supabase
@@ -250,6 +258,17 @@ export class StoriesService {
     } catch (error) {
       console.error('Error checking if story group is viewed:', error);
       return false;
+    }
+  }
+  
+  // Get the current user ID
+  static async getCurrentUserId() {
+    try {
+      const { data } = await supabase.auth.getUser();
+      return data?.user?.id || null;
+    } catch (error) {
+      console.error('Error getting current user ID:', error);
+      return null;
     }
   }
 }

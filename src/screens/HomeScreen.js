@@ -157,7 +157,7 @@ const HomeScreen = () => {
                   <Ionicons name="add" size={24} color="#ff00ff" />
                 )}
               </View>
-              <Text style={styles.storyText}>Share Story</Text>
+              <Text style={styles.storyText}>Your story</Text>
             </TouchableOpacity>
             {stories.map((story) => (
               <TouchableOpacity 
@@ -330,48 +330,25 @@ const styles = StyleSheet.create({
     color: '#800060',
   },
   stories: {
-    padding: 15,
-    marginHorizontal: 15,
-    backgroundColor: '#000',
-    borderRadius: 15,
-    borderWidth: 1,
-    borderColor: '#1a1a1a',
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.25,
-    shadowRadius: 3.84,
-    elevation: 5,
+    padding: 10,
+    backgroundColor: '#050505',
+    borderBottomWidth: 0.5,
+    borderBottomColor: '#333',
+    marginBottom: 10,
   },
   storyItem: {
     alignItems: 'center',
     marginRight: 15,
-    padding: 10,
   },
   addStoryButton: {
     width: 60,
     height: 60,
     borderRadius: 30,
-    borderWidth: 2,
-    borderColor: '#1DA1F2',
-    borderStyle: 'dashed',
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#f5f5f5',
-  },
-  storyText: {
-    marginTop: 5,
-    fontSize: 12,
-    color: '#000', // Changed to black since background is now white
-  },
-  storyAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    borderWidth: 2,
-    borderColor: '#1DA1F2', // Changed to match the theme
+    backgroundColor: '#121212',
+    borderWidth: 1,
+    borderColor: '#333',
   },
   storyRing: {
     width: 68,
@@ -385,13 +362,15 @@ const styles = StyleSheet.create({
     width: 60,
     height: 60,
     borderRadius: 30,
-    borderWidth: 2,
-    borderColor: '#000',
+    borderWidth: 0.5,
+    borderColor: '#333',
   },
   storyText: {
     marginTop: 5,
     fontSize: 12,
-    color: '#ff00ff',
+    color: '#fff',
+    textAlign: 'center',
+    maxWidth: 70,
   },
   viewerContainer: {
     flex: 1,
