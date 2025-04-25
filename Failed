@@ -1,388 +1,530 @@
-Expo SDK setup chsh -s /bin/zsh
-Instructions for adding the OneSignal React Native & Expo SDK to your app for iOS, Android, and derivatives like Amazon.
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  StyleSheet, 
+  View, 
+  Text, 
+  Image, 
+  TouchableOpacity, 
+  Dimensions, 
+  StatusBar,
+  Alert,
+  ActivityIndicator,
+  Modal,
+  Platform
+} from 'react-native';
+import { Video } from 'expo-av';
+import { Ionicons } from '@expo/vector-icons';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import { StoriesService } from '../services/StoriesService';
+import { LinearGradient } from 'expo-linear-gradient';
+import { supabase } from '../config/supabase';
 
-Suggest Edits
-Requirements
-A managed Expo app. If using a bare React Native app, see React Native SDK setup.
-Expo SDK 48+ (setup instructions use 52.0.43).
-EAS CLI (EAS Build required)
-React Native 0.71+ (setup instructions use React Native 0.78.2).
-iOS
-mac with Xcode 14+ (setup instructions use Xcode 16.2).
-CocoaPods 1.16.2+ (setup instructions use CocoaPods 1.16.2).
-iOS 12+ or iPadOS 12+ device (iPhone, iPad, iPod Touch). Xcode simulator works running iOS 16.2+.
-Android
-Android 7.0+ device or emulator with "Google Play Store (Services)" installed.
-Configured OneSignal app and platform.
-Configure your OneSignal app and platform
-Required
+const { width, height } = Dimensions.get('window');
 
-Before enabling push notifications, make sure your app is set up with the platforms you support— Apple (APNS), Google (FCM), Huawei (HMS), and/or Amazon (ADM). Follow the steps below to configure your OneSignal account and platform settings.
-
-If your team already has a OneSignal account, ask to be invited as an admin role so you can configure the app. Otherwise, sign up for a free account to get started.
-
-Details on configuring your OneSignal app (click to expand)
-SDK setup
-1. Add SDK
-Install the OneSignal Expo plugin using the Expo CLI.
-
-Shell
-
-npx expo install onesignal-expo-plugin
-Add the react-native-onesignal package to your project.
-
-npm
-Yarn
-
-npm install --save react-native-onesignal
-2. Configure the plugin
-Open your app.json (or app.config.js). In the plugins array, you should see "onesignal-expo-plugin". Configure the desired plugin props:
-
-JSON
-
-{
-  "expo": {
-    "ios": {
-      "bundleIdentifier": "com.yourcompany.yourapp", // ✅ Required for iOS builds
-      "infoPlist": {
-        "UIBackgroundModes": ["remote-notification"] // ✅ Required for push notifications
-      },
-      "entitlements": {
-        "aps-environment": "development", // ✅ Required for push notification, change to "production" for Testflight and App Store builds
-        "com.apple.security.application-groups": [
-          "group.${ios.bundleIdentifier}.onesignal" // // ✅ Required for confirmed delivery
-        ]
+const StoriesScreen = () => {
+  const navigation = useNavigation();
+  const route = useRoute();
+  const { storyGroupId, userId, initialStoryIndex = 0 } = route.params || {};
+  
+  const [stories, setStories] = useState([]);
+  const [currentIndex, setCurrentIndex] = useState(initialStoryIndex);
+  const [loading, setLoading] = useState(true);
+  const [progress, setProgress] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const [menuVisible, setMenuVisible] = useState(false);
+  const [userInfo, setUserInfo] = useState(null);
+  
+  const videoRef = useRef(null);
+  const progressInterval = useRef(null);
+  const storyTimeout = useRef(null);
+  
+  // Load stories when component mounts
+  useEffect(() => {
+    loadStories();
+    
+    // Cleanup on unmount
+    return () => {
+      clearInterval(progressInterval.current);
+      clearTimeout(storyTimeout.current);
+    };
+  }, []);
+  
+  // Handle story progress and auto-advance
+  useEffect(() => {
+    if (stories.length > 0 && !loading) {
+      // Mark story as viewed
+      markStoryAsViewed();
+      
+      // Reset progress
+      setProgress(0);
+      
+      // Clear previous intervals/timeouts
+      clearInterval(progressInterval.current);
+      clearTimeout(storyTimeout.current);
+      
+      // Start progress for current story
+      startProgress();
+    }
+  }, [currentIndex, stories, loading]);
+  
+  const loadStories = async () => {
+    try {
+      setLoading(true);
+      
+      // Get stories for the specific user/group
+      const data = await StoriesService.getUserStories(userId);
+      
+      if (data && data.length > 0) {
+        setStories(data);
+        setUserInfo(data[0].user);
+      } else {
+        // No stories found, go back
+        navigation.goBack();
       }
-    },
-    "android": {
-      "package": "com.yourcompany.yourapp" // ✅ Required for Android builds
-    },
-    "plugins": [
-      [
-        "onesignal-expo-plugin",
-        {
-          "mode": "development"
+    } catch (error) {
+      console.error('Error loading stories:', error);
+      Alert.alert('Error', 'Failed to load stories');
+      navigation.goBack();
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  const markStoryAsViewed = async () => {
+    if (stories.length > 0 && currentIndex < stories.length) {
+      try {
+        await StoriesService.markStoryAsViewed(stories[currentIndex].id);
+      } catch (error) {
+        console.error('Error marking story as viewed:', error);
+      }
+    }
+  };
+  
+  const startProgress = () => {
+    // Duration for each story (5 seconds)
+    const storyDuration = 5000;
+    const updateInterval = 50; // Update progress every 50ms
+    const incrementValue = updateInterval / storyDuration;
+    
+    // Start progress interval
+    progressInterval.current = setInterval(() => {
+      if (!paused) {
+        setProgress(prev => {
+          const newProgress = prev + incrementValue;
+          return newProgress >= 1 ? 1 : newProgress;
+        });
+      }
+    }, updateInterval);
+    
+    // Set timeout to move to next story
+    storyTimeout.current = setTimeout(() => {
+      if (!paused) {
+        goToNextStory();
+      }
+    }, storyDuration);
+  };
+  
+  const goToPreviousStory = () => {
+    if (currentIndex > 0) {
+      setCurrentIndex(currentIndex - 1);
+    } else {
+      // If at first story, go back to previous user's stories or exit
+      navigation.goBack();
+    }
+  };
+  
+  const goToNextStory = () => {
+    if (currentIndex < stories.length - 1) {
+      setCurrentIndex(currentIndex + 1);
+    } else {
+      // If at last story, go back to home
+      navigation.goBack();
+    }
+  };
+  
+  const handlePress = (event) => {
+    const { locationX } = event.nativeEvent;
+    
+    // Determine if press is on left or right side of screen
+    if (locationX < width / 3) {
+      // Left side - go to previous story
+      goToPreviousStory();
+    } else if (locationX > (width * 2) / 3) {
+      // Right side - go to next story
+      goToNextStory();
+    } else {
+      // Middle - pause/play
+      setPaused(!paused);
+      
+      if (videoRef.current) {
+        if (paused) {
+          videoRef.current.playAsync();
+        } else {
+          videoRef.current.pauseAsync();
         }
-      ]
-    ]
+      }
+    }
+  };
+  
+  const handleDeleteStory = async () => {
+    try {
+      setMenuVisible(false);
+      setPaused(true);
+      
+      // Show confirmation dialog
+      Alert.alert(
+        'Delete Story',
+        'Are you sure you want to delete this story?',
+        [
+          {
+            text: 'Cancel',
+            onPress: () => setPaused(false),
+            style: 'cancel',
+          },
+          {
+            text: 'Delete',
+            onPress: async () => {
+              try {
+                await StoriesService.deleteStory(stories[currentIndex].id);
+                
+                // If this was the only story, go back
+                if (stories.length === 1) {
+                  navigation.goBack();
+                } else {
+                  // Remove the deleted story from the array
+                  const updatedStories = [...stories];
+                  updatedStories.splice(currentIndex, 1);
+                  
+                  // Update stories array
+                  setStories(updatedStories);
+                  
+                  // Adjust current index if needed
+                  if (currentIndex >= updatedStories.length) {
+                    setCurrentIndex(updatedStories.length - 1);
+                  }
+                }
+              } catch (error) {
+                console.error('Error deleting story:', error);
+                Alert.alert('Error', 'Failed to delete story');
+                setPaused(false);
+              }
+            },
+            style: 'destructive',
+          },
+        ],
+        { cancelable: false }
+      );
+    } catch (error) {
+      console.error('Error handling delete:', error);
+      setPaused(false);
+    }
+  };
+  
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#ff00ff" />
+      </View>
+    );
   }
-}
-Plugin props
-mode (required): Configures APNs environment entitlement.
-Use "development" when testing and change to "production" for Testflight and App Store builds.
-devTeam (optional): Your Apple Team ID, found by running expo credentials:manager (e.g., "91SW8A37CR").
-iPhoneDeploymentTarget (optional): Sets the minimum iOS version your app supports. Should match your Podfile value (e.g., "15.0").
-smallIcons (optional): Array of paths to Android small notification icons (white, transparent, 96x96px). Images will be automatically scaled (e.g., ["./assets/ic_stat_onesignal_default.png"]).
-largeIcons (optional): Array of paths to Android large notification icons (white, transparent, 256x256px) (e.g., ["./assets/ic_onesignal_large_icon_default.png"]).
-smallIconAccentColor (optional): Hex value for Android notification icon accent color (e.g., "#FF0000").
-iosNSEFilePath (optional): Path to custom Notification Service Extension (NSE) in Objective-C (e.g., "./assets/NotificationService.m").
-3. Initialize SDK
-Depending on your Expo structure (Traditional App entry or Expo Router), initialize OneSignal following these options.
+  
+  if (stories.length === 0) {
+    return null; // This should not happen as we navigate back if no stories
+  }
+  
+  const currentStory = stories[currentIndex];
+  
+  return (
+    <View style={styles.container}>
+      <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
+      
+      {/* Story Content */}
+      <TouchableOpacity 
+        activeOpacity={1} 
+        style={styles.storyContainer}
+        onPress={handlePress}
+      >
+        {/* Progress Bar */}
+        <View style={styles.progressContainer}>
+          {stories.map((_, index) => (
+            <View key={index} style={styles.progressBarBackground}>
+              <View 
+                style={[styles.progressBar, { 
+                  width: index === currentIndex ? `${progress * 100}%` : index < currentIndex ? '100%' : '0%' 
+                }]}
+              />
+            </View>
+          ))}
+        </View>
+        
+        {/* User Info */}
+        <View style={styles.header}>
+          <View style={styles.userInfo}>
+            <Image 
+              source={{ uri: userInfo?.avatar_url || 'https://via.placeholder.com/40' }} 
+              style={styles.avatar} 
+            />
+            <Text style={styles.username}>{userInfo?.username}</Text>
+            <Text style={styles.timestamp}>
+              {new Date(currentStory?.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+            </Text>
+          </View>
+          
+          {/* Menu Button (only show for user's own stories) */}
+          {currentStory.user_id === userId && (
+            <TouchableOpacity 
+              style={styles.menuButton}
+              onPress={() => {
+                setPaused(true);
+                setMenuVisible(true);
+              }}
+            >
+              <Ionicons name="ellipsis-vertical" size={24} color="#fff" />
+            </TouchableOpacity>
+          )}
+        </View>
+        
+        {/* Story Media */}
+        <View style={styles.mediaContainer}>
+          {currentStory.type === 'video' ? (
+            <Video
+              ref={videoRef}
+              source={{ uri: currentStory.media_url }}
+              style={styles.media}
+              resizeMode="contain"
+              shouldPlay={!paused}
+              isLooping={false}
+              onPlaybackStatusUpdate={(status) => {
+                if (status.didJustFinish) {
+                  goToNextStory();
+                }
+              }}
+            />
+          ) : (
+            <Image
+              source={{ uri: currentStory.media_url }}
+              style={styles.media}
+              resizeMode="contain"
+            />
+          )}
+        </View>
+      </TouchableOpacity>
+      
+      {/* Menu Modal */}
+      <Modal
+        visible={menuVisible}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setMenuVisible(false);
+          setPaused(false);
+        }}
+      >
+        <TouchableOpacity 
+          style={styles.modalOverlay}
+          activeOpacity={1}
+          onPress={() => {
+            setMenuVisible(false);
+            setPaused(false);
+          }}
+        >
+          <View style={styles.menuContainer}>
+            <TouchableOpacity style={styles.menuItem} onPress={handleDeleteStory}>
+              <Ionicons name="trash-outline" size={24} color="#ff3b30" />
+              <Text style={[styles.menuItemText, { color: '#ff3b30' }]}>Delete Story</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+    </View>
+  );
+};
 
-Using Traditional App Entry (App.tsx or App.js)? (Click to expand...)
-Using Expo Router (file-based routing)? (Click to expand...)
-📘
-Complex setups & troubleshooting
-
-Review our OneSignal Expo Plugin GitHub repo for additional configuration options, more complex setup instructions or open an issue. Our SDKs are open source and we welcome PRs!
-
-Android setup
-First, make sure your OneSignal app is configured for the Android platform with your Firebase Credentials.
-
-Set up your notification icons to match your app's branding. If you skip this step, OneSignal will display a default bell icon.
-
-Build for Android
-At this point, you should be able to build and run your app on an Android device or emulator.
-
-Once your Android build is working, you can either:
-
-Continue with the iOS setup.
-Jump ahead to Testing.
-📘
-Android troubleshooting
-
-There are no commonly known build errors for Android at this time, but additional details can be found in Troubleshooting Android.
-
-iOS setup
-First, make sure your OneSignal app is configured for the iOS platform using either the p8 Token (Recommended) or p12 Certificate. This should use the same credentials setup in your EAS configuration.
-
-Build for iOS
-At this point, you should be able to build and run your app on iOS. It is recommended to build on an actual iOS device. If you build with the simulator, make sure it is running iOS 16.2+ as this is when Apple added push notification capabilities to the iOS simulator.
-
-Common iOS build errors
-PBXGroup Error
-You may see this error when building with Xcode 16.
-
-RuntimeError - PBXGroup attempted to initialize an object with unknown ISA PBXFileSystemSynchronizedRootGroup from attributes: {"isa"=>"...", "exceptions"=>["//", "..."], "explicitFileTypes"=>{}, "explicitFolders"=>[], "path"=>"OneSignalNotificationServiceExtension", "sourceTree"=>"<group>"}
-
-Check the error for the folder name under "path"
-
-
-Then in your project, open your XCWorkspace folder in Xcode and open the project directory in the left sidebar.
-
-From here, you should see the folders corresponding with the the targets you have available on this project. You should find folder that matches the "path" in the error you've received. Update the folder to "Convert to Group".
-
-
-Cycle Inside Error
-You may see this error when building with Xcode 15 or higher, which is caused by a Xcode 15+ default configuration change affecting cross platform systems.
-
-Error: Cycle inside SampleProject; building could produce unreliable results.
-
-Open your .xcworkspace folder in Xcode and navigate to your App Target > Build Phases.
-
-You should have a phase called "Embed Foundation Extensions" or "Embed App Extensions". Drag and move this build phase to above "Run Script".
-
-The correct order of the Build Phases in Xcode.
-The correct order of the Build Phases in Xcode.
-
-Build and run your app. The error should be resolved.
-
-If that does not fix the error, then expand the Embed Foundation Extensions and un-check "Copy only when installing".
-
-Uncheck Copy only when installing.
-Uncheck Copy only when installing.
-
-Clean and build the app.
-
-Testing
-This guide will help you verify that your OneSignal SDK integration is functioning correctly. You'll test push notifications, subscription management, and in-app messaging.
-
-Check mobile subscriptions
-Launch your app on a test device.
-You should immediately see the native push permission prompt because of the requestPermission method added in the initialization step above.
-IMPORTANT: Before responding to the prompt, check your OneSignal dashboard:
-Navigate to Audience > Subscriptions.
-You should see a new entry with status "Never Subscribed".
-An iOS device and an Android device showing the native push permission prompts
-An iOS device and an Android device showing the native push permission prompts
-
-The Subscriptions page of the OneSignal dashboard showing a subscription with "Never Subscribed" status
-The Subscriptions page of the OneSignal dashboard showing a subscription with "Never Subscribed" status
-
-Return to the app and tap "Allow" on the permission prompt.
-Refresh your OneSignal dashboard Subscription's page.
-The subscription's status should now show "Subscribed".
-The Subscriptions page of the OneSignal dashboard showing a subscription with "Subscribed" status
-The Subscriptions page of the OneSignal dashboard showing a subscription with "Subscribed" status
-
-Setup test subscriptions
-Test subscriptions are helpful for testing a push notification before sending a message.
-
-Next to the subscription, click Options (three dots button) and select Add to Test Subscriptions.
-
-
-Name your subscription so you know its your device and can find it in the Test Subscriptions page.
-
-
-Create a test users segment
-To test push and in-app messages faster, navigate to Audience > Segments > New Segment.
-
-Name the segment Test Users (the name is important because it will be used later) and add the Test Users filter. Click Create Segment when finished.
-
-Screenshot of a segment utilizing the "Test Users" filter
-Screenshot of a segment utilizing the "Test Users" filter
-
-Send test push via API
-Test sending a push notification via our API.
-
-In your OneSignal dashboard, navigate to Settings > Keys & IDs. Copy the following code into your terminal, replacing YOUR_APP_API_KEY and YOUR_APP_ID with the correct IDs found in Keys & IDs.
-
-cURL
-
-curl -X \
-POST --url 'https://api.onesignal.com/notifications' \
- --header 'content-type: application/json; charset=utf-8' \
- --header 'authorization: Key YOUR_APP_API_KEY' \
- --data \
- '{
-  "app_id": "YOUR_APP_ID",
-  "target_channel": "push",
-  "name": "Testing basic setup",
-  "headings": {
-  	"en": "👋"
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#000',
   },
-  "contents": {
-    "en": "Hello world!"
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#000',
   },
-  "included_segments": [
-    "Test Users"
-  ],
-  "ios_attachments": {
-    "onesignal_logo": "https://avatars.githubusercontent.com/u/11823027?s=200&v=4"
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 15,
+    paddingTop: Platform.OS === 'ios' ? 50 : 40, // Extra padding for iOS notch
+    paddingBottom: 10,
   },
-  "big_picture": "https://avatars.githubusercontent.com/u/11823027?s=200&v=4"
-}'
+  userInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  avatar: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    marginRight: 10,
+  },
+  username: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  menuButton: {
+    padding: 5,
+  },
+  progressContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 10,
+    paddingTop: 10,
+    gap: 5,
+  },
+  progressBar: {
+    flex: 1,
+    height: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    borderRadius: 1,
+    overflow: 'hidden',
+  },
+  progress: {
+    height: '100%',
+    borderRadius: 1,
+  },
+  content: {
+    flex: 1,
+    justifyContent: 'center',
+  },
+  media: {
+    width: '100%',
+    height: '100%',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  menuContainer: {
+    backgroundColor: '#1a1a1a',
+    borderTopLeftRadius: 15,
+    borderTopRightRadius: 15,
+    padding: 20,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 15,
+  },
+  menuText: {
+    fontSize: 16,
+    marginLeft: 15,
+    color: '#fff',
+  },
+  container: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#000',
+  },
+  storyContainer: {
+    flex: 1,
+  },
+  progressContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    paddingHorizontal: 8,
+    paddingTop: 50, // Extra padding to avoid notch
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 10,
+  },
+  progressBarBackground: {
+    flex: 1,
+    height: 3,
+    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    marginHorizontal: 2,
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressBar: {
+    height: '100%',
+    backgroundColor: '#fff',
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingTop: 60, // Extra padding to avoid notch
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    zIndex: 5,
+  },
+  userInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  avatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    marginRight: 8,
+  },
+  username: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 14,
+    marginRight: 8,
+  },
+  timestamp: {
+    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 12,
+  },
+  menuButton: {
+    padding: 8,
+  },
+  mediaContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  media: {
+    width: '100%',
+    height: '100%',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  menuContainer: {
+    backgroundColor: '#1a1a1a',
+    borderTopLeftRadius: 15,
+    borderTopRightRadius: 15,
+    paddingVertical: 20,
+  },
+  menuItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+  },
+  menuItemText: {
+    fontSize: 16,
+    marginLeft: 12,
+    color: '#fff',
+  },
+});
 
-Check images and confirmed delivery
-If all setup steps were completed successfully, the test devices should receive a notification with an image included:
-
-Apple uses your app icon for iOS push notification icon.
-iOS and Android devices displaying message sent from API
-
-After the message is received, in your OneSignal dashboard, go to Delivery > Sent Messages and click on the message to see the message report.
-
-You should see the confirmed stat, meaning the device received the push.
-
-Screenshot showing the delivery statistics page for the sent message
-Screenshot showing the delivery statistics page for the sent message
-
-If on our Professional plan or higher, you can scroll down to the Audience Activity section to see the confirmed delivery for individual devices:
-
-Screenshot showing the Audience Activity report for the sent message
-Screenshot showing the Audience Activity report for the sent message
-
-iOS images and confirmed delivery troubleshooting
-If you did not receive an image, that means the Notification Service Extension was not setup correctly. Return to the iOS setup section and review the implementation steps.
-
-If you received the notification with an image but no confirmed delivery, then the App Groups was not setup correctly. Return to the iOS setup section and review the implementation.
-
-Send an in-app message
-In-app messages are a great way to communicate information at specific points while users are in your app.
-
-Close or background your app on the device.
-In your OneSignal dashboard, navigate to Messages > In-App > New In-App.
-Find and select the Welcome message.
-Set your Audience as the Test Users segment we used previously.
-Audience of the "Welcome" in-app message targeting the "Test Users" segment
-Audience of the "Welcome" in-app message targeting the "Test Users" segment
-
-Add any quick customizations you want.
-Edited version of the "Welcome" in-app message
-Edited version of the "Welcome" in-app message
-
-Verify the Trigger is set to On app open.
-Under Schedule > How often do you want to show this message? select Every time trigger conditions are satisfied.
-Click Make Message Live so it is available to your Test Users each time they open the app.
-Schedule of the "Welcome" in-app message set to show "Every time trigger conditions are satisfied"
-Schedule of the "Welcome" in-app message set to show "Every time trigger conditions are satisfied"
-
-After the in-app message is live, open your app. You should see it display:
-The "Welcome" in-app message displayed on an iOS and Android device
-The "Welcome" in-app message displayed on an iOS and Android device
-
-If you did not see the in-app message:
-
-Make sure you started a new session.
-In step 1, we mentioned you need to close or background your app on the device. This is because users must meet the in-app audience criteria before a new session starts. In OneSignal, a new session starts when the user opens your app after it has been in the background or closed for at least 30 seconds. For more details, see our guide on how in-app messages are displayed.
-
-Put the app into the background or close it. Wait 30 seconds, then open the app again. It should appear.
-
-Make sure you are still in the Test Users segment.
-If you uninstalled the app and re-installed it or testing on a different device, make sure to set the new subscription as a test subscription. Then try again. See Subscriptions for more details.
-
-📘
-Still having issues?
-
-Follow Getting a Debug Log while reproducing the steps above. This will generate additional logging that you can share with support@onesignal.com and we will help investigate what's going on.
-
-
-👍
-Testing complete!
-
-You have successfully setup the OneSignal SDK and learned important concepts like:
-
-Gathering Subscriptions, setting Test subscriptions, and creating Segments.
-Sending Push with images and Confirmed Delivery using Segments and our Create message API.
-Sending In-app messages.
-Continue with this guide to identify users in your app and setup additional features.
-
-User identification
-Previously we demonstrated the concept of Subscriptions by creating a mobile subscription. Now we will take a look at how to identify Users across all their subscriptions including how to create email and sms subscriptions via the SDK.
-
-Assign External ID
-Assign users an External ID to reference them using your backend's identifier. The External ID should be readily available in your app and map to other 3rd party systems you may be using to identify users. This is especially important for Integrations.
-
-Set the External ID with our SDK's login method each time they are identified by your app.
-
-📘
-Subscription ID, OneSignal ID, & External ID
-
-OneSignal generates unique read-only IDs for subscriptions (Subscription ID) and users (OneSignal ID).
-
-As users download your app on different devices, subscribe to your website, and/or provide you email addresses and phone numbers outside of your app, new subscriptions will be created.
-
-Setting the External ID via our SDK is highly recommended to identify users across all their subscriptions, regardless of how they are created.
-
-Add data tags
-Data Tags (or just "tags") are used to set user properties and track events. They enable Message Personalization and more unique Segmentation allowing for more advanced use cases.
-
-Set tags with our SDK addTag(s) methods and see our Tags guide for more details.
-
-In this example, the app has added the user's current in-game level as a tag called current_level set to a value of 6:
-
-A user profile in OneSignal with a tag called "current_level" set to "6"
-A user profile in OneSignal with a tag called "current_level" set to "6"
-
-We can create a segment of users that have a level of between 5 and 10, and use that to send targeted and personalized messages:
-
-Create a new segment of users who love the color orange.
-Segment editor showing a segment targeting users with a current_level value of greater than 4 and less than 10
-
-Screenshot showing a push notification targeting the Level 5-10 segment with a personalized message
-Screenshot showing a push notification targeting the Level 5-10 segment with a personalized message
-
-The push notification is received on an iOS and Android device with the personalized content
-The push notification is received on an iOS and Android device with the personalized content
-
-Add email and/or SMS subscriptions
-Earlier we saw how our SDK creates mobile Subscriptions to send push and in-app messages. You can also reach users through emails and SMS channels by creating the appropriate subscriptions.
-
-When users provide consent to receive additional communication types, use our SDK addEmail method and addSms method to create these subscriptions.
-
-Best practices for multi-channel communication
-
-Obtain explicit consent before adding email or SMS subscriptions.
-Explain the benefits of each communication channel to users.
-Provide channel preferences so users can select which channels they prefer.
-After adding subscriptions under and External ID, you can view all channels associated with each user in the OneSignal dashboard Audience > Users > Find their External ID or using the View user API.
-
-These subscriptions were created within the app.
-A user profile with push, email, and SMS subscriptions, unified by the external ID.
-
-Privacy
-If you want to prevent OneSignal from collecting user data until user consent is provided, you can implement the setConsentRequired() method. When you or the user is ready to send our servers data, call the setConsentGiven() method.
-
-See our Privacy & security docs for more details including Data Collected by the OneSignal SDK and Handling Personal Data.
-
-Prompt for push permissions
-While we showed the requestPermission method earlier in the setup code, we recommend a more strategic approach to asking for push permissions.
-
-Instead of prompting immediately on app open, use in-app messages to explain the benefits of push notifications before requesting permission.
-
-For best practices and implementation details, see our Prompt for push permissions guide.
-
-Listen to push, user, and in-app events
-The SDK provides several event listeners for you to hook into. See our SDK reference guide for more details.
-
-Handling push clicks and foreground events
-Track when users interact with push notifications using the addClickListener method. This is helpful for Deep Linking.
-
-Control notification behavior when your app is in the foreground using the addForegroundLifecycleListener method with preventDefault to conditionally decide to display it or not.
-
-If you want to customize the notification before it is displayed to the user, see the Mobile Service Extensions docs for details.
-
-Listening to user state changes
-Track when the External ID is set with the addObserver() method for user state . This is a good place to collect the OneSignal ID and/or Subscription ID if needed.
-
-Track the user's specific interaction with the push permission prompt with the addPermissionObserver() method.
-
-Track when the push subscription status changes with the addObserver() method for push.
-
-Listen and handle in-app message events
-Track when and how the user interacts with in-app messages with the addClickListener() method for in-app. This is a good place for Deep Linking with in-app messages or doing something custom when specific elements are clicked.
-
-If you are interested in tracking the in-app message lifecycle from before it is displayed to after it is dismissed, use the addLifecycleListener() method.
-
-Advanced
-Review the Mobile push setup doc to make sure you are setting up all the features. Common examples:
-
-Migrating to OneSignal from another service – If you are moving to OneSignal or need to use multiple push SDKs in your app.
-Location tracking – Setup and ask permission to track user location points for segmentation.
-Deep Linking – Direct users to specific app content when interacting with notifications.
-Integrations – Setup Mixpanel, Amplitude, HubSpot, Segment, and more!
-Mobile Service Extensions – Customizing the notification before it is displayed.
-Action buttons – Add custom actions to your notifications instead of just opening the app.
-Multi-language messaging - How to send messages in different languages.
-Identity Verification – Prevent bad actors from impersonating your users.
-Custom Outcomes – Track user actions from notifications, such as purchases.
-Live Activities – Another messaging channel to update iOS users in real time.
+export default StoriesScreen;

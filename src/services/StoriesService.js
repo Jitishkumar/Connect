@@ -19,19 +19,32 @@ export class StoriesService {
       
       // Get current timestamp
       const now = new Date();
-      
-      // Get all active stories (not expired, within 24 hours)
+      const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+
+      // First get the list of users you follow
+      const { data: followingList } = await supabase
+        .from('follows')  // Changed from 'follows' to 'followers'
+        .select('following_id')
+        .eq('follower_id', user.id);
+
+      const followingIds = followingList?.map(f => f.following_id) || [];
+
+      // Get all stories with proper visibility rules
       const { data, error } = await supabase
         .from('stories')
         .select(`
           *,
           user:user_id (id, username, avatar_url)
         `)
-        .gte('created_at', new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString())
+        .gte('created_at', twentyFourHoursAgo)
+        .or(
+          `user_id.eq.${user.id},` + // User's own stories
+          (followingIds.length > 0 ? `user_id.in.(${followingIds.join(',')})` : 'id.is.null') // Stories from followed users
+        )
         .order('created_at', { ascending: false });
-      
+
       if (error) throw error;
-      
+
       // Get viewed stories for the current user
       const { data: viewedStories, error: viewedError } = await supabase
         .from('story_views')
@@ -61,7 +74,7 @@ export class StoriesService {
             user_id: userId,
             user: story.user,
             stories: [story],
-            has_unviewed: !story.is_viewed // Initialize with first story's status
+            has_unviewed: !story.is_viewed
           });
         }
         
@@ -80,9 +93,47 @@ export class StoriesService {
       throw error;
     }
   }
+
+  // Helper function to process stories data
+  static async processStoriesData(data, userId) {
+    // Get viewed stories for the current user
+    const { data: viewedStories } = await supabase
+      .from('story_views')
+      .select('story_id')
+      .eq('user_id', userId);
+    
+    // Create a set of viewed story IDs for faster lookup
+    const viewedStoryIds = new Set(viewedStories?.map(view => view.story_id) || []);
+    
+    // Add viewed status to each story
+    const storiesWithViewedStatus = data.map(story => ({
+      ...story,
+      is_viewed: viewedStoryIds.has(story.id)
+    }));
+    
+    // Group stories by user
+    return storiesWithViewedStatus.reduce((groups, story) => {
+      const userId = story.user_id;
+      const existingGroup = groups.find(group => group.user_id === userId);
+      
+      if (existingGroup) {
+        existingGroup.stories.push(story);
+        if (!story.is_viewed) existingGroup.has_unviewed = true;
+      } else {
+        groups.push({
+          user_id: userId,
+          user: story.user,
+          stories: [story],
+          has_unviewed: !story.is_viewed
+        });
+      }
+      
+      return groups;
+    }, []);
+  }
   
   // Upload a new story
-  static async uploadStory(uri, type = 'image', followersOnly = false) {
+  static async uploadStory(uri, type = 'image') {
     try {
       // First upload media to Cloudinary
       const cloudinaryResponse = await uploadToCloudinary(uri, type);
@@ -105,16 +156,14 @@ export class StoriesService {
       let storyGroupId;
       let isFirstStory = true;
       
-      // If user has existing stories, use the same story_group_id
       if (existingStories && existingStories.length > 0) {
         storyGroupId = existingStories[0].story_group_id;
         isFirstStory = false;
       } else {
-        // Generate a unique ID for story group using custom generator
         storyGroupId = generateUUID();
       }
       
-      // Save story to Supabase
+      // Save story to Supabase (removed followersOnly parameter)
       const { data, error } = await supabase
         .from('stories')
         .insert({
@@ -122,7 +171,6 @@ export class StoriesService {
           media_url: cloudinaryResponse.url,
           cloudinary_public_id: cloudinaryResponse.publicId,
           type: type,
-          followers_only: followersOnly,
           story_group_id: storyGroupId,
           is_first_story: isFirstStory
         })
@@ -171,15 +219,35 @@ export class StoriesService {
   // Get stories for a specific user
   static async getUserStories(userId) {
     try {
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+
       // Get current timestamp
       const now = new Date();
       
+      // Check if the user is following the story owner
+      const { data: followData } = await supabase
+        .from('followers')
+        .select('*')
+        .eq('follower_id', user.id)
+        .eq('following_id', userId)
+        .single();
+
       // Get all active stories for the specified user
       const { data, error } = await supabase
         .from('stories')
-        .select('*')
+        .select(`
+          *,
+          user:user_id (id, username, avatar_url)
+        `)
         .eq('user_id', userId)
         .gte('created_at', new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString())
+        .or(
+          `user_id.eq.${user.id},` + // Own stories
+          `and(followers_only.eq.false),` + // Public stories
+          `and(followers_only.eq.true,${followData ? 'id.gt.0' : 'id.lt.0'})` // Followers-only stories if following
+        )
         .order('created_at', { ascending: true });
       
       if (error) throw error;

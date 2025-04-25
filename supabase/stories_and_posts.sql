@@ -49,10 +49,24 @@ ALTER TABLE posts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE post_likes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE post_comments ENABLE ROW LEVEL SECURITY;
 
--- Stories policies
-CREATE POLICY "Stories are viewable by everyone"
+-- Update Stories policies
+-- Drop existing policy
+DROP POLICY IF EXISTS "Stories visibility based on followers" ON stories;
+
+-- Create new policy for stories visibility (followers only)
+CREATE POLICY "Stories visibility for followers only"
     ON stories FOR SELECT
-    USING (true);
+    USING (
+        user_id = auth.uid() OR  -- User can see their own stories
+        EXISTS (
+            SELECT 1 FROM followers
+            WHERE follower_id = auth.uid()
+            AND following_id = stories.user_id
+        )
+    );
+
+-- Set default value for followers_only to true
+ALTER TABLE stories ALTER COLUMN followers_only SET DEFAULT true;
 
 CREATE POLICY "Users can insert their own stories"
     ON stories FOR INSERT
