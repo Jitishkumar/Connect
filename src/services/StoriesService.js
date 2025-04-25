@@ -219,22 +219,56 @@ export class StoriesService {
   // Get stories for a specific user
   static async getUserStories(userId) {
     try {
+      // Validate userId
+      if (!userId || typeof userId !== 'string' || userId === '0') {
+        console.error('Invalid userId provided:', userId);
+        return [];
+      }
+
       // Get current user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
 
       // Get current timestamp
       const now = new Date();
+      const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
       
-      // Check if the user is following the story owner
-      const { data: followData } = await supabase
-        .from('followers')
+      // If viewing own stories
+      if (user.id === userId) {
+        const { data, error } = await supabase
+          .from('stories')
+          .select(`
+            *,
+            user:user_id (id, username, avatar_url)
+          `)
+          .eq('user_id', userId)
+          .gte('created_at', twentyFourHoursAgo)
+          .order('created_at', { ascending: true });
+        
+        if (error) {
+          console.error('Error fetching own stories:', error);
+          return [];
+        }
+        return data || [];
+      }
+
+      // If viewing someone else's stories, check if following
+      const { data: followData, error: followError } = await supabase
+        .from('follows')
         .select('*')
         .eq('follower_id', user.id)
         .eq('following_id', userId)
-        .single();
+        .maybeSingle();
 
-      // Get all active stories for the specified user
+      if (followError) {
+        console.error('Error checking follow status:', followError);
+        return [];
+      }
+
+      // If not following, return empty array
+      if (!followData) return [];
+
+      // Get stories if following
       const { data, error } = await supabase
         .from('stories')
         .select(`
@@ -242,16 +276,14 @@ export class StoriesService {
           user:user_id (id, username, avatar_url)
         `)
         .eq('user_id', userId)
-        .gte('created_at', new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString())
-        .or(
-          `user_id.eq.${user.id},` + // Own stories
-          `and(followers_only.eq.false),` + // Public stories
-          `and(followers_only.eq.true,${followData ? 'id.gt.0' : 'id.lt.0'})` // Followers-only stories if following
-        )
+        .gte('created_at', twentyFourHoursAgo)
         .order('created_at', { ascending: true });
       
-      if (error) throw error;
-      return data;
+      if (error) {
+        console.error('Error fetching followed user stories:', error);
+        return [];
+      }
+      return data || [];
       
     } catch (error) {
       console.error('Error fetching user stories:', error);
