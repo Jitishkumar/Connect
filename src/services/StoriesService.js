@@ -298,6 +298,33 @@ export class StoriesService {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
       
+      // First check if the story exists and if the user has permission to view it
+      const { data: story, error: storyError } = await supabase
+        .from('stories')
+        .select('id, user_id')
+        .eq('id', storyId)
+        .single();
+      
+      if (storyError) {
+        console.error('Error fetching story:', storyError);
+        return false;
+      }
+      
+      // Check if the user is the owner of the story or follows the story owner
+      if (story.user_id !== user.id) {
+        const { data: followData, error: followError } = await supabase
+          .from('follows')
+          .select('id')
+          .eq('follower_id', user.id)
+          .eq('following_id', story.user_id)
+          .maybeSingle();
+        
+        if (followError || !followData) {
+          console.error('User does not have permission to view this story');
+          return false;
+        }
+      }
+      
       // Insert a record into story_views table
       const { error } = await supabase
         .from('story_views')
@@ -306,7 +333,11 @@ export class StoriesService {
           user_id: user.id
         }, { onConflict: 'story_id,user_id' });
       
-      if (error) throw error;
+      if (error) {
+        console.error('Error marking story as viewed:', error);
+        return false;
+      }
+      
       return true;
       
     } catch (error) {

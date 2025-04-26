@@ -31,12 +31,21 @@ export const generateSignature = (params) => {
 // Function to upload media to Cloudinary
 export const uploadToCloudinary = async (uri, type = 'image') => {
   try {
+    // Handle empty URI case for text-only posts
+    if (!uri || uri === '') {
+      return {
+        url: '',
+        publicId: '',
+        resourceType: 'text'
+      };
+    }
+
     const formData = new FormData();
     
     // Prepare the file
     const filename = uri.split('/').pop();
     const match = /\.([\w\d]+)$/.exec(filename);
-    const ext = match?.[1];
+    const ext = match?.[1] || 'jpg'; // Default to jpg if extension can't be determined
     
     formData.append('file', {
       uri,
@@ -47,18 +56,38 @@ export const uploadToCloudinary = async (uri, type = 'image') => {
     // Add upload preset (create this in your Cloudinary dashboard)
     formData.append('upload_preset', 'connect_app_preset');
     
-    // Upload to Cloudinary
-    const response = await fetch(
-      `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${type}/upload`,
-      {
-        method: 'POST',
-        body: formData,
-        headers: {
-          'Accept': 'application/json',
-          'Content-Type': 'multipart/form-data'
-        }
+    // Set timeout for fetch request
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    
+    // Upload to Cloudinary with retry logic
+    let retries = 3;
+    let response;
+    
+    while (retries > 0) {
+      try {
+        response = await fetch(
+          `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD_NAME}/${type}/upload`,
+          {
+            method: 'POST',
+            body: formData,
+            headers: {
+              'Accept': 'application/json',
+              'Content-Type': 'multipart/form-data'
+            },
+            signal: controller.signal
+          }
+        );
+        break; // If successful, exit the retry loop
+      } catch (fetchError) {
+        retries--;
+        if (retries === 0) throw fetchError;
+        // Wait before retrying (exponential backoff)
+        await new Promise(resolve => setTimeout(resolve, (3 - retries) * 1000));
       }
-    );
+    }
+    
+    clearTimeout(timeoutId);
     
     const data = await response.json();
     

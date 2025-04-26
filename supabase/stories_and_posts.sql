@@ -5,9 +5,9 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE TABLE IF NOT EXISTS stories (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
-    media_url TEXT NOT NULL,
-    cloudinary_public_id TEXT NOT NULL,
-    type TEXT CHECK (type IN ('image', 'video')) NOT NULL,
+    media_url TEXT,
+    cloudinary_public_id TEXT,
+    type TEXT CHECK (type IN ('image', 'video', 'text')),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     expires_at TIMESTAMPTZ DEFAULT (NOW() + INTERVAL '24 hours')
 );
@@ -17,9 +17,9 @@ CREATE TABLE IF NOT EXISTS posts (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE,
     caption TEXT,
-    media_url TEXT NOT NULL,
-    cloudinary_public_id TEXT NOT NULL,
-    type TEXT CHECK (type IN ('image', 'video')) NOT NULL,
+    media_url TEXT,
+    cloudinary_public_id TEXT,
+    type TEXT CHECK (type IN ('image', 'video', 'text')),
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
@@ -50,11 +50,16 @@ ALTER TABLE post_likes ENABLE ROW LEVEL SECURITY;
 ALTER TABLE post_comments ENABLE ROW LEVEL SECURITY;
 
 -- Update Stories policies
--- Drop existing policy
+-- Drop all existing policies for stories table
 DROP POLICY IF EXISTS "Stories visibility based on followers" ON stories;
+DROP POLICY IF EXISTS "Stories visibility for followers only" ON stories;
+DROP POLICY IF EXISTS "Stories are viewable by everyone" ON stories;
+DROP POLICY IF EXISTS "Users can insert their own stories" ON stories;
+DROP POLICY IF EXISTS "Users can update their own stories" ON stories;
+DROP POLICY IF EXISTS "Users can delete their own stories" ON stories;
 
 -- Create new policy for stories visibility (followers only)
-CREATE POLICY "Stories visibility for followers only"
+CREATE POLICY "Stories visibility rules"
     ON stories FOR SELECT
     USING (
         user_id = auth.uid() OR  -- User can see their own stories
@@ -81,7 +86,14 @@ CREATE POLICY "Users can delete their own stories"
     USING (auth.uid() = user_id);
 
 -- Posts policies
-CREATE POLICY "Posts are viewable by everyone"
+-- First drop existing policies
+DROP POLICY IF EXISTS "Posts are viewable by everyone" ON posts;
+DROP POLICY IF EXISTS "Users can insert their own posts" ON posts;
+DROP POLICY IF EXISTS "Users can update their own posts" ON posts;
+DROP POLICY IF EXISTS "Users can delete their own posts" ON posts;
+
+-- Create new policies
+CREATE POLICY "Posts visibility rules"
     ON posts FOR SELECT
     USING (true);
 
@@ -98,6 +110,12 @@ CREATE POLICY "Users can delete their own posts"
     USING (auth.uid() = user_id);
 
 -- Likes policies
+-- First drop existing policies
+DROP POLICY IF EXISTS "Likes are viewable by everyone" ON post_likes;
+DROP POLICY IF EXISTS "Users can insert their own likes" ON post_likes;
+DROP POLICY IF EXISTS "Users can delete their own likes" ON post_likes;
+
+-- Create new policies
 CREATE POLICY "Likes are viewable by everyone"
     ON post_likes FOR SELECT
     USING (true);
@@ -111,6 +129,13 @@ CREATE POLICY "Users can delete their own likes"
     USING (auth.uid() = user_id);
 
 -- Comments policies
+-- First drop existing policies
+DROP POLICY IF EXISTS "Comments are viewable by everyone" ON post_comments;
+DROP POLICY IF EXISTS "Users can insert their own comments" ON post_comments;
+DROP POLICY IF EXISTS "Users can update their own comments" ON post_comments;
+DROP POLICY IF EXISTS "Users can delete their own comments" ON post_comments;
+
+-- Create new policies
 CREATE POLICY "Comments are viewable by everyone"
     ON post_comments FOR SELECT
     USING (true);

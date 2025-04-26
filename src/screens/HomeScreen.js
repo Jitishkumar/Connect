@@ -2,7 +2,7 @@
 
 
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text, ScrollView, TouchableOpacity, TextInput, Image, Modal, ActivityIndicator, Alert } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, TouchableOpacity, TextInput, Image, Modal, ActivityIndicator, Alert, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts, Poppins_700Bold } from '@expo-google-fonts/poppins';
 import { useNavigation } from '@react-navigation/native';
@@ -10,15 +10,21 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import * as ImagePicker from 'expo-image-picker';
 import { StoriesService } from '../services/StoriesService';
+import { PostsService } from '../services/PostsService';
 import { Video } from 'expo-av';
 
 const HomeScreen = () => {
   const navigation = useNavigation();
   const [stories, setStories] = useState([]);
+  const [posts, setPosts] = useState([]);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [selectedStory, setSelectedStory] = useState(null);
   const [viewerVisible, setViewerVisible] = useState(false);
+  const [postText, setPostText] = useState('');
+  const [showPostInput, setShowPostInput] = useState(false);
+  const [selectedPost, setSelectedPost] = useState(null);
+  const [showPostOptions, setShowPostOptions] = useState(false);
   
   let [fontsLoaded] = useFonts({
     Poppins_700Bold,
@@ -26,7 +32,18 @@ const HomeScreen = () => {
 
   useEffect(() => {
     loadStories();
+    loadPosts();
   }, []);
+
+  const loadPosts = async () => {
+    try {
+      const data = await PostsService.getAllPosts();
+      setPosts(data);
+    } catch (error) {
+      console.error('Error loading posts:', error);
+      Alert.alert('Error', 'Failed to load posts');
+    }
+  };
 
   const loadStories = async () => {
     try {
@@ -82,6 +99,87 @@ const HomeScreen = () => {
     });
   };
 
+  const handleMediaPicker = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        allowsEditing: true,
+        quality: 1,
+      });
+
+      if (!result.canceled && result.assets && result.assets[0]) {
+        const uri = result.assets[0].uri;
+        if (!uri) {
+          Alert.alert('Error', 'Failed to get image/video');
+          return;
+        }
+
+        setUploading(true);
+        const type = uri.endsWith('.mp4') ? 'video' : 'image';
+        
+        await PostsService.createPost(uri, postText || '', type);
+        await loadPosts();
+        setShowPostInput(false);
+        setPostText('');
+        Alert.alert('Success', 'Post created successfully');
+      }
+    } catch (error) {
+      console.error('Error creating post:', error);
+      Alert.alert('Error', error.message || 'Failed to create post');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleCreatePost = async () => {
+    if (!postText.trim()) {
+      Alert.alert('Error', 'Please enter some text for your post');
+      return;
+    }
+
+    try {
+      setUploading(true);
+      // Pass empty string instead of null for media_url
+      await PostsService.createPost('', postText.trim(), 'text');
+      await loadPosts();
+      setShowPostInput(false);
+      setPostText('');
+      Alert.alert('Success', 'Post created successfully');
+    } catch (error) {
+      console.error('Error creating post:', error);
+      Alert.alert('Error', 'Failed to create post');
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleDeletePost = async (post) => {
+    Alert.alert(
+      'Delete Post',
+      'Are you sure you want to delete this post?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await PostsService.deletePost(post.id);
+              await loadPosts();
+              Alert.alert('Success', 'Post deleted successfully');
+            } catch (error) {
+              console.error('Error deleting post:', error);
+              Alert.alert('Error', 'Failed to delete post');
+            }
+          }
+        }
+      ]
+    );
+  };
+
   if (!fontsLoaded) {
     return null;
   }
@@ -123,26 +221,27 @@ const HomeScreen = () => {
               style={styles.userAvatar}
               source={{ uri: 'https://via.placeholder.com/40' }}
             />
-            <TouchableOpacity style={styles.postInputButton}>
+            <TouchableOpacity 
+              style={styles.postInputButton}
+              onPress={() => setShowPostInput(true)}
+            >
               <Text style={styles.postInputPlaceholder}>What's happening?</Text>
             </TouchableOpacity>
           </View>
           <View style={styles.postOptions}>
-            <TouchableOpacity style={styles.postOption}>
-              <Ionicons name="images" size={20} color="#800060" />
-              <Text style={styles.optionText}>Gallery</Text>
+            <TouchableOpacity 
+              style={styles.postOption}
+              onPress={handleMediaPicker}
+            >
+              <Ionicons name="images" size={20} color="#ff00ff" />
+              <Text style={[styles.optionText, { color: '#fff' }]}>Gallery</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.postOption}>
-              <Ionicons name="videocam" size={20} color="#800060" />
-              <Text style={styles.optionText}>Live</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.postOption}>
-              <Ionicons name="mic" size={20} color="#800060" />
-              <Text style={styles.optionText}>Voice</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.postOption}>
-              <Ionicons name="game-controller" size={20} color="#800060" />
-              <Text style={styles.optionText}>Gaming</Text>
+            <TouchableOpacity 
+              style={styles.postOption}
+              onPress={() => setShowPostInput(true)}
+            >
+              <Ionicons name="create" size={20} color="#ff00ff" />
+              <Text style={[styles.optionText, { color: '#fff' }]}>Text</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -179,6 +278,63 @@ const HomeScreen = () => {
             ))}
           </ScrollView>
         </View>
+
+        {/* Post Input Modal */}
+        <Modal
+          visible={showPostInput}
+          transparent={true}
+          animationType="slide"
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <TouchableOpacity onPress={() => setShowPostInput(false)}>
+                  <Ionicons name="close" size={24} color="#fff" />
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.postButton}
+                  onPress={handleCreatePost}
+                >
+                  <Text style={styles.postButtonText}>Post</Text>
+                </TouchableOpacity>
+              </View>
+              <TextInput
+                style={styles.postInput}
+                placeholder="What's happening?"
+                placeholderTextColor="#666"
+                multiline
+                value={postText}
+                onChangeText={setPostText}
+                color="#fff"
+              />
+            </View>
+          </View>
+        </Modal>
+
+        {/* Post Options Modal */}
+        <Modal
+          visible={showPostOptions}
+          transparent={true}
+          animationType="slide"
+        >
+          <TouchableOpacity 
+            style={styles.modalOverlay}
+            onPress={() => setShowPostOptions(false)}
+          >
+            <View style={styles.optionsModal}>
+              <TouchableOpacity 
+                style={styles.optionItem}
+                onPress={() => {
+                  setShowPostOptions(false);
+                  handleDeletePost(selectedPost);
+                }}
+              >
+                <Ionicons name="trash-outline" size={24} color="#ff0000" />
+                <Text style={[styles.optionText, { color: '#ff0000' }]}>Delete Post</Text>
+              </TouchableOpacity>
+            </View>
+          </TouchableOpacity>
+        </Modal>
 
         {/* Story Viewer Modal */}
         <Modal
@@ -220,41 +376,63 @@ const HomeScreen = () => {
         </Modal>
 
         <View style={styles.feed}>
-          {/* Sample Post */}
-          <View style={styles.postContainer}>
-            <View style={styles.post}>
-              <View style={styles.postHeader}>
-                <Image
-                  style={styles.postUserAvatar}
-                  source={{ uri: 'https://via.placeholder.com/40' }}
-                />
-                <View>
-                  <Text style={styles.postUsername}>Kriston Watshon</Text>
-                  <Text style={styles.postTime}>08:39 am</Text>
+          {posts.map((post) => (
+            <View key={post.id} style={styles.postContainer}>
+              <View style={styles.post}>
+                <View style={styles.postHeader}>
+                  <Image
+                    style={styles.postUserAvatar}
+                    source={{ uri: post.profiles.avatar_url || 'https://via.placeholder.com/40' }}
+                  />
+                  <View style={styles.postHeaderInfo}>
+                    <Text style={styles.postUsername}>{post.profiles.username}</Text>
+                    <Text style={styles.postTime}>
+                      {new Date(post.created_at).toLocaleDateString()}
+                    </Text>
+                  </View>
+                  <TouchableOpacity 
+                    style={styles.postOptionsButton}
+                    onPress={() => {
+                      setSelectedPost(post);
+                      setShowPostOptions(true);
+                    }}
+                  >
+                    <Ionicons name="ellipsis-horizontal" size={24} color="#fff" />
+                  </TouchableOpacity>
                 </View>
-              </View>
-              <Text style={styles.postText}>
-                Lorem ipsum Dolor Sit Amet, Consectetur Adipiscing Elit. Fringilla Natoque Id Aenean.
-              </Text>
-              <Image
-                style={styles.postImage}
-                source={{ uri: 'https://via.placeholder.com/400' }}
-              />
-             
-              <View style={styles.postActions}>
-                <View style={styles.actionGroup}>
-                  <Ionicons name="heart-outline" size={24} color="pink" />
-                  <Text style={{ color: '#e3a6d0' }}>1,964</Text>
+                {post.caption && (
+                  <Text style={styles.postText}>{post.caption}</Text>
+                )}
+                {post.type === 'video' ? (
+                  <Video
+                    source={{ uri: post.media_url }}
+                    style={styles.postMedia}
+                    resizeMode="cover"
+                    shouldPlay={false}
+                    isLooping
+                    useNativeControls
+                  />
+                ) : post.media_url && (
+                  <Image
+                    style={styles.postMedia}
+                    source={{ uri: post.media_url }}
+                  />
+                )}
+                <View style={styles.postActions}>
+                  <View style={styles.actionGroup}>
+                    <Ionicons name="heart-outline" size={24} color="pink" />
+                    <Text style={{ color: '#e3a6d0' }}>{post.likes[0]?.count || 0}</Text>
+                  </View>
+                  <View style={styles.actionGroup}>
+                    <Ionicons name="chatbubble-outline" size={24} color="pink" />
+                    <Text style={{ color: '#e3a6d0' }}>{post.comments[0]?.count || 0}</Text>
+                  </View>
+                  <Ionicons name="share-outline" size={24} color="pink" />
+                  <Ionicons name="bookmark-outline" size={24} color="pink" />
                 </View>
-                <View style={styles.actionGroup}>
-                  <Ionicons name="chatbubble-outline" size={24} color="pink" />
-                  <Text style={{ color: '#e3a6d0' }}>135</Text>
-                </View>
-                <Ionicons name="share-outline" size={24} color="pink" />
-                <Ionicons name="bookmark-outline" size={24} color="pink" />
               </View>
             </View>
-          </View>
+          ))}
         </View>
       </ScrollView>
     </View>
@@ -263,45 +441,120 @@ const HomeScreen = () => {
 
 // Update the stories section styles
 const styles = StyleSheet.create({
+  postInput: {
+    color: '#fff',
+    fontSize: 16,
+    padding: 15,
+    textAlignVertical: 'top',
+    minHeight: 100,
+  },
   container: {
     flex: 1,
     backgroundColor: '#050505',
-    paddingTop: 40,
+    paddingTop: 20,
+  },
+
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+
+  modalContent: {
+    backgroundColor: '#121212',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    minHeight: 200,
+  },
+
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+
+  postButton: {
+    backgroundColor: '#ff00ff',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+
+  postButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+
+  postInput: {
+    color: '#ffffff',
+    fontSize: 16,
+    minHeight: 100,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 10,
+    padding: 15,
+    marginTop: 10,
+  },
+
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+
+  optionsModal: {
+    backgroundColor: '#121212',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+  },
+
+  optionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 15,
+    gap: 10,
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 2,
-    paddingTop: 3, // Added top padding for notch/camera area
+    paddingTop: 2, // Added top padding for notch/camera area
     backgroundColor: '#000033',
+    paddingLeft:20,
   },
   logo: {
-    fontSize: 28,
+    fontSize: 30,
     fontFamily: 'Poppins_700Bold',
     color: '#1DA1F2',
     letterSpacing: 1,
+    marginLeft: 5,
   },
   headerIcons: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 20,
+    
   },
   iconButton: {
     padding: 8,
+    
   },
   createPost: {
     backgroundColor: '#fff',
     margin: 15,
     borderRadius: 15,
     padding: 15,
-    borderWidth: 1,
+    borderWidth: 3,
     borderColor: '#1a1a1a',
   },
   postInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+    
   },
   userAvatar: {
     width: 40,
@@ -396,7 +649,7 @@ const styles = StyleSheet.create({
     padding: 15,
   },
   postContainer: {
-    backgroundColor:'#660033',
+    backgroundColor: '#660033',
     borderRadius: 15,
     marginHorizontal: 15,
     marginVertical: 10,
@@ -410,6 +663,14 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
+  },
+
+  postHeaderInfo: {
+    flex: 1,
+  },
+
+  postOptionsButton: {
+    padding: 5,
   },
   post: {
     padding: 15,
@@ -439,11 +700,11 @@ const styles = StyleSheet.create({
     marginBottom: 10,
     color: '#e3a6d0',
   },
-  postImage: {
+  postMedia: {
     width: '100%',
     height: 300,
     borderRadius: 10,
-   
+    marginVertical: 10,
   },
   postActions: {
     flexDirection: 'row',

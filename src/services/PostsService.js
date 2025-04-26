@@ -3,29 +3,77 @@ import { uploadToCloudinary, deleteFromCloudinary } from '../config/cloudinary';
 
 export class PostsService {
   // Create a new post
-  static async createPost(uri, caption, type = 'image') {
+  static async createPost(uri, caption, type = 'text') {
     try {
-      // First upload media to Cloudinary
-      const cloudinaryResponse = await uploadToCloudinary(uri, type);
-      
       // Get current user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
       
+      // Validate caption
+      if (!caption || caption.trim() === '') {
+        throw new Error('Caption is required');
+      }
+      
+      // Validate type
+      const validTypes = ['text', 'image', 'video'];
+      if (!validTypes.includes(type)) {
+        throw new Error('Invalid post type. Must be text, image, or video');
+      }
+      
+      // Determine post type based on URI presence
+      const finalType = uri && uri !== '' ? type : 'text';
+      
+      let postData = {
+        user_id: user.id,
+        caption: caption.trim(),
+        type: finalType
+      };
+      
+      // Handle media upload if URI is provided
+      if (uri && uri !== '') {
+        if (finalType === 'text') {
+          throw new Error('Media URI provided but post type is set to text');
+        }
+        
+        try {
+          const cloudinaryResponse = await uploadToCloudinary(uri, finalType);
+          if (!cloudinaryResponse || !cloudinaryResponse.url) {
+            throw new Error('Failed to upload media');
+          }
+          postData = {
+            ...postData,
+            media_url: cloudinaryResponse.url,
+            cloudinary_public_id: cloudinaryResponse.publicId
+          };
+        } catch (uploadError) {
+          console.error('Error uploading to Cloudinary:', uploadError);
+          // Clean up any partial uploads if necessary
+          if (uploadError.publicId) {
+            await deleteFromCloudinary(uploadError.publicId, finalType).catch(console.error);
+          }
+          throw new Error('Failed to upload media. Please try again.');
+        }
+      }
+      
       // Save post to Supabase
       const { data, error } = await supabase
         .from('posts')
-        .insert({
-          user_id: user.id,
-          caption,
-          media_url: cloudinaryResponse.url,
-          cloudinary_public_id: cloudinaryResponse.publicId,
-          type: cloudinaryResponse.resourceType
-        })
-        .select()
+        .insert(postData)
+        .select(`
+          *,
+          profiles:user_id (id, username, avatar_url)
+        `)
         .single();
       
-      if (error) throw error;
+      if (error) {
+        console.error('Supabase error:', error);
+        // Clean up Cloudinary upload if Supabase insert fails
+        if (postData.cloudinary_public_id) {
+          await deleteFromCloudinary(postData.cloudinary_public_id, postData.type).catch(console.error);
+        }
+        throw new Error(error.message || 'Failed to create post. Please try again.');
+      }
+      
       return data;
       
     } catch (error) {
