@@ -74,6 +74,19 @@ export class PostsService {
   // Get all posts with likes and comments count
   static async getAllPosts() {
     try {
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+
+      // Get the list of users the current user follows
+      const { data: followingList } = await supabase
+        .from('follows')
+        .select('following_id')
+        .eq('follower_id', user.id);
+
+      const followingIds = followingList?.map(f => f.following_id) || [];
+
+      // Get posts from followed users and own posts
       const { data, error } = await supabase
         .from('posts')
         .select(`
@@ -82,6 +95,10 @@ export class PostsService {
           likes:post_likes (count),
           comments:post_comments (count)
         `)
+        .or(
+          `user_id.eq.${user.id},` + // User's own posts
+          (followingIds.length > 0 ? `user_id.in.(${followingIds.join(',')})` : 'id.is.null') // Posts from followed users
+        )
         .order('created_at', { ascending: false });
       
       if (error) throw error;
@@ -210,17 +227,33 @@ export class PostsService {
   // Delete a post
   static async deletePost(postId) {
     try {
-      // First get the post to get Cloudinary public_id
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+
+      // First get the post to verify ownership and get Cloudinary public_id
       const { data: post, error: fetchError } = await supabase
         .from('posts')
-        .select('cloudinary_public_id, type')
+        .select('cloudinary_public_id, type, user_id')
         .eq('id', postId)
         .single();
       
       if (fetchError) throw fetchError;
       
-      // Delete from Cloudinary
-      await deleteFromCloudinary(post.cloudinary_public_id, post.type);
+      // Verify post ownership
+      if (post.user_id !== user.id) {
+        throw new Error('You can only delete your own posts');
+      }
+      
+      // Delete from Cloudinary only if it's a media post
+      if (post.cloudinary_public_id && post.type !== 'text') {
+        try {
+          await deleteFromCloudinary(post.cloudinary_public_id, post.type);
+        } catch (cloudinaryError) {
+          console.error('Error deleting from Cloudinary:', cloudinaryError);
+          // Continue with post deletion even if Cloudinary deletion fails
+        }
+      }
       
       // Delete from Supabase (this will cascade delete likes and comments)
       const { error: deleteError } = await supabase
