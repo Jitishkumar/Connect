@@ -2,7 +2,7 @@ import { supabase } from '../config/supabase';
 import { uploadToCloudinary, deleteFromCloudinary } from '../config/cloudinary';
 
 export class PostsService {
-  // Create a new post
+  // Create a new posttdkjdj
   static async createPost(uri = null, caption = '', type = 'text') {
     try {
       // Get current user
