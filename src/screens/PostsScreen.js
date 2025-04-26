@@ -45,6 +45,9 @@ const PostsScreen = () => {
     }
   };
 
+  const [showPostModal, setShowPostModal] = useState(false);
+  const [caption, setCaption] = useState('');
+  const [selectedMedia, setSelectedMedia] = useState(null);
   const handleAddPost = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -54,34 +57,100 @@ const PostsScreen = () => {
       });
 
       if (!result.canceled && result.assets[0]) {
-        setUploading(true);
         const uri = result.assets[0].uri;
         const type = uri.endsWith('.mp4') ? 'video' : 'image';
-        
-        // Prompt for caption
-        Alert.prompt(
-          'Add Caption',
-          'Enter a caption for your post',
-          async (caption) => {
-            try {
-              await PostsService.createPost(uri, caption, type);
-              await loadPosts(); // Reload posts after upload
-              Alert.alert('Success', 'Post created successfully');
-            } catch (error) {
-              console.error('Error creating post:', error);
-              Alert.alert('Error', 'Failed to create post');
-            } finally {
-              setUploading(false);
-            }
-          }
-        );
+        setSelectedMedia({ uri, type });
+        setShowPostModal(true);
       }
     } catch (error) {
-      console.error('Error adding post:', error);
-      Alert.alert('Error', 'Failed to upload post');
+      console.error('Error selecting media:', error);
+      Alert.alert('Error', 'Failed to select media');
+    }
+  };
+
+  const handleCreatePost = async () => {
+    if (!selectedMedia && !caption.trim()) {
+      Alert.alert('Error', 'Please add some text or media to your post');
+      return;
+    }
+
+    try {
+      setUploading(true);
+      if (selectedMedia) {
+        await PostsService.createPost(selectedMedia.uri, caption.trim(), selectedMedia.type);
+      } else {
+        await PostsService.createPost(null, caption.trim(), 'text');
+      }
+      await loadPosts();
+      setShowPostModal(false);
+      setSelectedMedia(null);
+      setCaption('');
+      Alert.alert('Success', 'Post created successfully');
+    } catch (error) {
+      console.error('Error creating post:', error);
+      Alert.alert('Error', 'Failed to create post');
+    } finally {
       setUploading(false);
     }
   };
+
+  // Add this new component for the post creation modal
+  const CreatePostModal = () => (
+    <Modal
+      visible={showPostModal}
+      animationType="slide"
+      transparent={true}
+    >
+      <View style={styles.modalContainer}>
+        <View style={styles.modalContent}>
+          <View style={styles.modalHeader}>
+            <TouchableOpacity onPress={() => {
+              setShowPostModal(false);
+              setSelectedMedia(null);
+              setCaption('');
+            }}>
+              <Ionicons name="close" size={24} color="#fff" />
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={[styles.postButton, (!selectedMedia && !caption.trim()) && styles.disabledButton]}
+              onPress={handleCreatePost}
+              disabled={!selectedMedia && !caption.trim()}
+            >
+              <Text style={styles.postButtonText}>Post</Text>
+            </TouchableOpacity>
+          </View>
+
+          {selectedMedia && (
+            <View style={styles.mediaPreview}>
+              {selectedMedia.type === 'video' ? (
+                <Video
+                  source={{ uri: selectedMedia.uri }}
+                  style={styles.previewMedia}
+                  resizeMode="cover"
+                  shouldPlay={false}
+                />
+              ) : (
+                <Image
+                  source={{ uri: selectedMedia.uri }}
+                  style={styles.previewMedia}
+                  resizeMode="cover"
+                />
+              )}
+            </View>
+          )}
+
+          <TextInput
+            style={styles.captionInput}
+            placeholder="Write a caption..."
+            placeholderTextColor="#666"
+            multiline
+            value={caption}
+            onChangeText={setCaption}
+          />
+        </View>
+      </View>
+    </Modal>
+  );
 
   const handleLike = async (postId) => {
     try {
@@ -242,6 +311,10 @@ const PostsScreen = () => {
 
   return (
     <View style={styles.container}>
+      {/* Add the CreatePostModal component */}
+      <CreatePostModal />
+      
+      {/* Existing return content */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Feed</Text>
         <TouchableOpacity
@@ -400,6 +473,81 @@ const styles = StyleSheet.create({
     color: '#ff00ff',
     fontWeight: 'bold',
     marginLeft: 10,
+  },
+  postButtonDisabled: {
+    color: '#666',
+  },
+  uploadingContainer: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -70 }, { translateY: -40 }],
+    backgroundColor: 'rgba(0, 0, 0, 0.8)',
+    padding: 20,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  uploadingText: {
+    color: '#fff',
+    marginLeft: 10,
+  },
+  emptyText: {
+    color: '#666',
+    fontSize: 16,
+    textAlign: 'center',
+    marginTop: 50,
+  },
+  loader: {
+    marginTop: 20,
+  },
+  // New styles for post creation modal
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#121212',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    minHeight: '50%',
+    padding: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  postButton: {
+    backgroundColor: '#ff00ff',
+    paddingHorizontal: 20,
+    paddingVertical: 8,
+    borderRadius: 20,
+  },
+  disabledButton: {
+    backgroundColor: '#666',
+  },
+  postButtonText: {
+    color: '#fff',
+    fontWeight: 'bold',
+  },
+  mediaPreview: {
+    width: '100%',
+    height: 300,
+    marginBottom: 20,
+    borderRadius: 10,
+    overflow: 'hidden',
+  },
+  previewMedia: {
+    width: '100%',
+    height: '100%',
+  },
+  captionInput: {
+    color: '#fff',
+    fontSize: 16,
+    minHeight: 100,
   },
   postButtonDisabled: {
     color: '#666',

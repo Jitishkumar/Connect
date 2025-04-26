@@ -99,6 +99,8 @@ const HomeScreen = () => {
     });
   };
 
+  const [selectedMedia, setSelectedMedia] = useState(null);
+
   const handleMediaPicker = async () => {
     try {
       const result = await ImagePicker.launchImageLibraryAsync({
@@ -113,36 +115,33 @@ const HomeScreen = () => {
           Alert.alert('Error', 'Failed to get image/video');
           return;
         }
-
-        setUploading(true);
         const type = uri.endsWith('.mp4') ? 'video' : 'image';
-        
-        await PostsService.createPost(uri, postText || '', type);
-        await loadPosts();
-        setShowPostInput(false);
-        setPostText('');
-        Alert.alert('Success', 'Post created successfully');
+        setSelectedMedia({ uri, type });
+        setShowPostInput(true);
+        setPostText(''); // Reset post text when new media is selected
       }
     } catch (error) {
-      console.error('Error creating post:', error);
-      Alert.alert('Error', error.message || 'Failed to create post');
-    } finally {
-      setUploading(false);
+      console.error('Error selecting media:', error);
+      Alert.alert('Error', error.message || 'Failed to select media');
     }
   };
 
   const handleCreatePost = async () => {
-    if (!postText.trim()) {
-      Alert.alert('Error', 'Please enter some text for your post');
+    if (!selectedMedia && !postText.trim()) {
+      Alert.alert('Error', 'Please add some text or media to your post');
       return;
     }
 
     try {
       setUploading(true);
-      // Pass empty string instead of null for media_url
-      await PostsService.createPost('', postText.trim(), 'text');
+      if (selectedMedia) {
+        await PostsService.createPost(selectedMedia.uri, postText.trim(), selectedMedia.type);
+      } else {
+        await PostsService.createPost('', postText.trim(), 'text');
+      }
       await loadPosts();
       setShowPostInput(false);
+      setSelectedMedia(null);
       setPostText('');
       Alert.alert('Success', 'Post created successfully');
     } catch (error) {
@@ -288,24 +287,53 @@ const HomeScreen = () => {
           <View style={styles.modalContainer}>
             <View style={styles.modalContent}>
               <View style={styles.modalHeader}>
-                <TouchableOpacity onPress={() => setShowPostInput(false)}>
+                <TouchableOpacity 
+                  onPress={() => {
+                    setShowPostInput(false);
+                    setSelectedMedia(null);
+                    setPostText('');
+                  }}
+                >
                   <Ionicons name="close" size={24} color="#fff" />
                 </TouchableOpacity>
                 <TouchableOpacity 
-                  style={styles.postButton}
+                  style={[styles.postButton, (!selectedMedia && !postText.trim()) && styles.disabledButton]}
                   onPress={handleCreatePost}
+                  disabled={!selectedMedia && !postText.trim()}
                 >
                   <Text style={styles.postButtonText}>Post</Text>
                 </TouchableOpacity>
               </View>
+
+              {selectedMedia && (
+                <View style={styles.mediaPreview}>
+                  {selectedMedia.type === 'video' ? (
+                    <Video
+                      source={{ uri: selectedMedia.uri }}
+                      style={styles.previewMedia}
+                      resizeMode="cover"
+                      shouldPlay={false}
+                      useNativeControls
+                    />
+                  ) : (
+                    <Image
+                      source={{ uri: selectedMedia.uri }}
+                      style={styles.previewMedia}
+                      resizeMode="cover"
+                    />
+                  )}
+                </View>
+              )}
+
               <TextInput
-                style={styles.postInput}
-                placeholder="What's happening?"
-                placeholderTextColor="#666"
+                style={[styles.postInput, selectedMedia && styles.postInputWithMedia]}
+                placeholder="Write a caption..."
+                placeholderTextColor="#888"
                 multiline
                 value={postText}
                 onChangeText={setPostText}
-                color="#fff"
+                color="#ffffff"
+                autoFocus={selectedMedia ? true : false}
               />
             </View>
           </View>
@@ -442,11 +470,28 @@ const HomeScreen = () => {
 // Update the stories section styles
 const styles = StyleSheet.create({
   postInput: {
-    color: '#fff',
+    color: '#ffffff',
     fontSize: 16,
     padding: 15,
     textAlignVertical: 'top',
     minHeight: 100,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 10,
+    marginTop: 15,
+    flex: 1,
+    borderWidth: 1,
+    borderColor: '#333333',
+  },
+
+  postInputWithMedia: {
+    minHeight: 80,
+    marginTop: 10,
+    backgroundColor: '#1a1a1a',
+    borderRadius: 10,
+    color: '#ffffff',
+    borderWidth: 1,
+    borderColor: '#ff00ff',
+    padding: 15,
   },
   container: {
     flex: 1,
@@ -466,6 +511,12 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 20,
     padding: 20,
     minHeight: 200,
+    maxHeight: '90%',
+  },
+
+  modalContentScroll: {
+    flex: 1,
+    width: '100%',
   },
 
   modalHeader: {
@@ -482,6 +533,23 @@ const styles = StyleSheet.create({
     borderRadius: 20,
   },
 
+  disabledButton: {
+    backgroundColor: '#666',
+  },
+
+  mediaPreview: {
+    width: '100%',
+    height: 300,
+    marginBottom: 15,
+    borderRadius: 10,
+    overflow: 'hidden',
+    backgroundColor: '#1a1a1a',
+  },
+
+  previewMedia: {
+    width: '100%',
+    height: '100%',
+  },
   postButtonText: {
     color: '#fff',
     fontWeight: 'bold',
