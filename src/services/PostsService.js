@@ -3,38 +3,28 @@ import { uploadToCloudinary, deleteFromCloudinary } from '../config/cloudinary';
 
 export class PostsService {
   // Create a new post
-  static async createPost(uri, caption, type = 'text') {
+  static async createPost(uri = null, caption = '', type = 'text') {
     try {
       // Get current user
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error('User not authenticated');
       
-      // Validate caption
-      if (!caption || caption.trim() === '') {
-        throw new Error('Caption is required');
-      }
-      
-      // Validate type
-      const validTypes = ['text', 'image', 'video'];
-      if (!validTypes.includes(type)) {
-        throw new Error('Invalid post type. Must be text, image, or video');
+      // Allow empty caption if media is provided, and vice versa
+      if (!uri && !caption.trim()) {
+        throw new Error('Please add some text or media to your post');
       }
       
       // Determine post type based on URI presence
-      const finalType = uri && uri !== '' ? type : 'text';
+      const finalType = uri ? type : 'text';
       
       let postData = {
         user_id: user.id,
-        caption: caption.trim(),
+        caption: caption.trim() || '',  // Allow empty caption
         type: finalType
       };
       
       // Handle media upload if URI is provided
-      if (uri && uri !== '') {
-        if (finalType === 'text') {
-          throw new Error('Media URI provided but post type is set to text');
-        }
-        
+      if (uri) {
         try {
           const cloudinaryResponse = await uploadToCloudinary(uri, finalType);
           if (!cloudinaryResponse || !cloudinaryResponse.url) {
@@ -47,7 +37,6 @@ export class PostsService {
           };
         } catch (uploadError) {
           console.error('Error uploading to Cloudinary:', uploadError);
-          // Clean up any partial uploads if necessary
           if (uploadError.publicId) {
             await deleteFromCloudinary(uploadError.publicId, finalType).catch(console.error);
           }
