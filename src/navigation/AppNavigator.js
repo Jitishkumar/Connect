@@ -3,18 +3,20 @@ import React from 'react';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
-import LoginScreen from '../screens/LoginScreen';
 import HomeScreen from '../screens/HomeScreen';
-import MessagesScreen from '../screens/MessagesScreen';
-import NotificationsScreen from '../screens/NotificationsScreen';
-import ProfileScreen from '../screens/ProfileScreen';
+import LoginScreen from '../screens/LoginScreen';
 import SignupScreen from '../screens/SignupScreen';
+import ProfileScreen from '../screens/ProfileScreen';
 import EditProfileScreen from '../screens/EditProfileScreen';
-import SearchScreen from '../screens/SearchScreen';
-import ConfessionScreen from '../screens/ConfessionScreen';
-import UserProfileScreen from '../screens/UserProfileScreen';
+import MessagesScreen from '../screens/MessagesScreen';
 import MessageScreen from '../screens/MessageScreen';
+import NotificationsScreen from '../screens/NotificationsScreen';
+import SearchScreen from '../screens/SearchScreen';
+import UserProfileScreen from '../screens/UserProfileScreen';
 import StoriesScreen from '../screens/StoriesScreen';
+import AddAccountScreen from '../screens/AddAccountScreen';
+import ConfessionScreen from '../screens/ConfessionScreen';
+import CreatePostScreen from '../screens/CreatePostScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -83,7 +85,9 @@ export const AppNavigator = () => {
       <Stack.Screen name="Confession" component={ConfessionScreen} />
       <Stack.Screen name="UserProfile" component={UserProfileScreen} />
       <Stack.Screen name="MessageScreen" component={MessageScreen} />
-      <Stack.Screen name="Stories" component={StoriesScreen} />
+      <Stack.Screen name="Stories" component={StoriesScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="AddAccount" component={AddAccountScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="CreatePost" component={CreatePostScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 };

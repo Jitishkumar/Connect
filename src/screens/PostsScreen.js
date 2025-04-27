@@ -15,6 +15,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import { Video } from 'expo-av';
 import { useNavigation } from '@react-navigation/native';
 import { PostsService } from '../services/PostsService';
 import { supabase } from '../config/supabase';
@@ -50,6 +51,13 @@ const PostsScreen = () => {
   const [selectedMedia, setSelectedMedia] = useState(null);
   const handleAddPost = async () => {
     try {
+      // Check user authentication first
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert('Error', 'Please login to create a post');
+        return;
+      }
+
       const result = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.All,
         allowsEditing: true,
@@ -69,12 +77,18 @@ const PostsScreen = () => {
   };
 
   const handleCreatePost = async () => {
-    if (!selectedMedia && !caption.trim()) {
-      Alert.alert('Error', 'Please add some text or media to your post');
-      return;
-    }
-
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert('Error', 'Please login to create a post');
+        return;
+      }
+
+      if (!selectedMedia && !caption.trim()) {
+        Alert.alert('Error', 'Please add some text or media to your post');
+        return;
+      }
+
       setUploading(true);
       if (selectedMedia) {
         await PostsService.createPost(selectedMedia.uri, caption.trim(), selectedMedia.type);
@@ -88,7 +102,7 @@ const PostsScreen = () => {
       Alert.alert('Success', 'Post created successfully');
     } catch (error) {
       console.error('Error creating post:', error);
-      Alert.alert('Error', 'Failed to create post');
+      Alert.alert('Error', error.message || 'Failed to create post');
     } finally {
       setUploading(false);
     }
@@ -362,8 +376,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     padding: 16,
-    paddingTop: 50,
+    paddingTop: Platform.OS === 'ios' ? 60 : 40,
     backgroundColor: '#222',
+    marginTop: Platform.OS === 'ios' ? 0 : 30,
   },
   headerTitle: {
     fontSize: 20,

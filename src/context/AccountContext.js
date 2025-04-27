@@ -51,12 +51,42 @@ export const AccountProvider = ({ children }) => {
 
   const updateAccountWithSession = async (session) => {
     try {
-      // Get user profile data
-      const { data: profile, error } = await supabase
-        .from('profiles')
-        .select('*')
-        .eq('id', session.user.id)
-        .single();
+      // Add retry mechanism for network failures
+      const maxRetries = 3;
+      let retryCount = 0;
+      let profile;
+      let error;
+
+      while (retryCount < maxRetries) {
+        try {
+          // Get user profile data
+          const response = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', session.user.id)
+            .single();
+          
+          profile = response.data;
+          error = response.error;
+          if (!error) break; // Success, exit retry loop
+          
+          if (error.message?.includes('Network request failed')) {
+            retryCount++;
+            if (retryCount < maxRetries) {
+              // Exponential backoff: wait longer between each retry
+              await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount)));
+              continue;
+            }
+          }
+          break; // Non-network error, exit retry loop
+        } catch (e) {
+          error = e;
+          if (!e.message?.includes('Network request failed')) break;
+          retryCount++;
+          if (retryCount >= maxRetries) break;
+          await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount)));
+        }
+      }
 
       if (error) {
         // If profile doesn't exist, create one with basic information
@@ -124,6 +154,18 @@ export const AccountProvider = ({ children }) => {
       addAccount(updatedAccount);
     } catch (error) {
       console.error('Error updating account with session:', error);
+      // Store failed session update for retry
+      try {
+        const failedUpdates = JSON.parse(await AsyncStorage.getItem('failedSessionUpdates')) || [];
+        failedUpdates.push({
+          sessionId: session.user.id,
+          timestamp: Date.now(),
+          retryCount: 0
+        });
+        await AsyncStorage.setItem('failedSessionUpdates', JSON.stringify(failedUpdates));
+      } catch (storageError) {
+        console.error('Error storing failed update:', storageError);
+      }
     }
   };
 
@@ -157,6 +199,49 @@ export const AccountProvider = ({ children }) => {
     });
   };
 
+  // Add background retry for failed session updates
+  useEffect(() => {
+    const retryFailedUpdates = async () => {
+      try {
+        const failedUpdates = JSON.parse(await AsyncStorage.getItem('failedSessionUpdates')) || [];
+        if (failedUpdates.length === 0) return;
+
+        const now = Date.now();
+        const updatesToRetry = failedUpdates.filter(update => {
+          const timeSinceLastTry = now - update.timestamp;
+          return timeSinceLastTry > 1000 * Math.pow(2, update.retryCount); // Exponential backoff
+        });
+
+        if (updatesToRetry.length === 0) return;
+
+        const remainingUpdates = [];
+        for (const update of updatesToRetry) {
+          try {
+            const { data: session } = await supabase.auth.getSession();
+            if (session) {
+              await updateAccountWithSession(session);
+            }
+          } catch (error) {
+            if (update.retryCount < 5) { // Max 5 retries
+              remainingUpdates.push({
+                ...update,
+                retryCount: update.retryCount + 1,
+                timestamp: now
+              });
+            }
+          }
+        }
+
+        await AsyncStorage.setItem('failedSessionUpdates', JSON.stringify(remainingUpdates));
+      } catch (error) {
+        console.error('Error in retry process:', error);
+      }
+    };
+
+    const retryInterval = setInterval(retryFailedUpdates, 60000); // Check every minute
+    return () => clearInterval(retryInterval);
+  }, []);
+
   const switchToAccount = async (accountId) => {
     try {
       const account = accounts.find(acc => acc.id === accountId);
@@ -164,16 +249,40 @@ export const AccountProvider = ({ children }) => {
         return { success: false, error: 'Account not found or session expired' };
       }
 
-      // Try to use the refresh token to get a new session
-      const { data, error } = await supabase.auth.refreshSession({
-        refresh_token: account.session_token,
-      });
+      // Add retry mechanism for network failures
+      const maxRetries = 3;
+      let retryCount = 0;
+      let lastError;
 
-      if (error) {
-        return { success: false, error: error.message };
+      while (retryCount < maxRetries) {
+        try {
+          const { data, error } = await supabase.auth.refreshSession({
+            refresh_token: account.session_token,
+          });
+
+          if (!error) {
+            return { success: true, session: data.session };
+          }
+
+          lastError = error;
+          if (error.message?.includes('Network request failed')) {
+            retryCount++;
+            if (retryCount < maxRetries) {
+              await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount)));
+              continue;
+            }
+          }
+          break;
+        } catch (error) {
+          lastError = error;
+          if (!error.message?.includes('Network request failed')) break;
+          retryCount++;
+          if (retryCount >= maxRetries) break;
+          await new Promise(resolve => setTimeout(resolve, 1000 * Math.pow(2, retryCount)));
+        }
       }
 
-      return { success: true, session: data.session };
+      return { success: false, error: lastError?.message || 'Failed to switch account' };
     } catch (error) {
       return { success: false, error: error.message };
     }

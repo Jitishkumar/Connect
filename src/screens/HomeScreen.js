@@ -1,6 +1,5 @@
 
 
-
 import React, { useState, useEffect } from 'react';
 import { StyleSheet, View, Text, ScrollView, TouchableOpacity, TextInput, Image, Modal, ActivityIndicator, Alert, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -33,7 +32,23 @@ const HomeScreen = () => {
   useEffect(() => {
     loadStories();
     loadPosts();
-  }, []);
+
+    // Add listener for navigation focus
+    const unsubscribe = navigation.addListener('focus', () => {
+      const params = navigation.getState().routes.find(route => route.name === 'Home')?.params;
+      if (params?.refresh) {
+        if (params.updatedPosts) {
+          setPosts(params.updatedPosts);
+        } else {
+          loadPosts();
+        }
+        // Reset the refresh parameter
+        navigation.setParams({ refresh: undefined, updatedPosts: undefined });
+      }
+    });
+
+    return unsubscribe;
+  }, [navigation]);
 
   const loadPosts = async () => {
     try {
@@ -101,55 +116,8 @@ const HomeScreen = () => {
 
   const [selectedMedia, setSelectedMedia] = useState(null);
 
-  const handleMediaPicker = async () => {
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.All,
-        allowsEditing: true,
-        quality: 1,
-      });
-
-      if (!result.canceled && result.assets && result.assets[0]) {
-        const uri = result.assets[0].uri;
-        if (!uri) {
-          Alert.alert('Error', 'Failed to get image/video');
-          return;
-        }
-        const type = uri.endsWith('.mp4') ? 'video' : 'image';
-        setSelectedMedia({ uri, type });
-        setShowPostInput(true);
-        setPostText(''); // Reset post text when new media is selected
-      }
-    } catch (error) {
-      console.error('Error selecting media:', error);
-      Alert.alert('Error', error.message || 'Failed to select media');
-    }
-  };
-
-  const handleCreatePost = async () => {
-    if (!selectedMedia && !postText.trim()) {
-      Alert.alert('Error', 'Please add some text or media to your post');
-      return;
-    }
-
-    try {
-      setUploading(true);
-      if (selectedMedia) {
-        await PostsService.createPost(selectedMedia.uri, postText.trim(), selectedMedia.type);
-      } else {
-        await PostsService.createPost('', postText.trim(), 'text');
-      }
-      await loadPosts();
-      setShowPostInput(false);
-      setSelectedMedia(null);
-      setPostText('');
-      Alert.alert('Success', 'Post created successfully');
-    } catch (error) {
-      console.error('Error creating post:', error);
-      Alert.alert('Error', 'Failed to create post');
-    } finally {
-      setUploading(false);
-    }
+  const handleCreatePost = () => {
+    navigation.navigate('CreatePost');
   };
 
   const handleDeletePost = async (post) => {
@@ -222,7 +190,7 @@ const HomeScreen = () => {
             />
             <TouchableOpacity 
               style={styles.postInputButton}
-              onPress={() => setShowPostInput(true)}
+              onPress={handleCreatePost}
             >
               <Text style={styles.postInputPlaceholder}>What's happening?</Text>
             </TouchableOpacity>
@@ -230,17 +198,10 @@ const HomeScreen = () => {
           <View style={styles.postOptions}>
             <TouchableOpacity 
               style={styles.postOption}
-              onPress={handleMediaPicker}
-            >
-              <Ionicons name="images" size={20} color="#ff00ff" />
-              <Text style={[styles.optionText, { color: '#fff' }]}>Gallery</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.postOption}
-              onPress={() => setShowPostInput(true)}
+              onPress={handleCreatePost}
             >
               <Ionicons name="create" size={20} color="#ff00ff" />
-              <Text style={[styles.optionText, { color: '#fff' }]}>Text</Text>
+              <Text style={[styles.optionText, { color: '#fff' }]}>Create Post</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -793,3 +754,4 @@ const styles = StyleSheet.create({
 });
 
 export default HomeScreen;
+

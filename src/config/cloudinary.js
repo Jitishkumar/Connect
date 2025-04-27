@@ -56,13 +56,14 @@ export const uploadToCloudinary = async (uri, type = 'image') => {
     // Add upload preset (create this in your Cloudinary dashboard)
     formData.append('upload_preset', 'connect_app_preset');
     
-    // Set timeout for fetch request
+    // Set timeout for fetch request with longer duration for large files
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
+    const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minute timeout
     
-    // Upload to Cloudinary with retry logic
-    let retries = 3;
+    // Upload to Cloudinary with enhanced retry logic
+    let retries = 5; // Increased retries
     let response;
+    let lastError;
     
     while (retries > 0) {
       try {
@@ -78,12 +79,29 @@ export const uploadToCloudinary = async (uri, type = 'image') => {
             signal: controller.signal
           }
         );
-        break; // If successful, exit the retry loop
+
+        // Check if response is ok before breaking
+        if (response.ok) {
+          break; // If successful, exit the retry loop
+        } else {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        }
       } catch (fetchError) {
+        lastError = fetchError;
         retries--;
-        if (retries === 0) throw fetchError;
-        // Wait before retrying (exponential backoff)
-        await new Promise(resolve => setTimeout(resolve, (3 - retries) * 1000));
+        
+        // Check if it's an abort error
+        if (fetchError.name === 'AbortError') {
+          throw new Error('Upload timed out. Please try with a smaller file or check your connection.');
+        }
+        
+        if (retries === 0) {
+          throw new Error(`Upload failed after multiple attempts: ${lastError.message}`);
+        }
+        
+        // Exponential backoff with jitter
+        const backoffDelay = Math.min(1000 * Math.pow(2, 5 - retries) + Math.random() * 1000, 10000);
+        await new Promise(resolve => setTimeout(resolve, backoffDelay));
       }
     }
     

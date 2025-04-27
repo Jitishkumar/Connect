@@ -26,9 +26,16 @@ export class PostsService {
       // Handle media upload if URI is provided
       if (uri) {
         try {
+          // Validate file size before upload (max 50MB)
+          const response = await fetch(uri);
+          const blob = await response.blob();
+          if (blob.size > 50 * 1024 * 1024) {
+            throw new Error('File size too large. Please select a file under 50MB.');
+          }
+
           const cloudinaryResponse = await uploadToCloudinary(uri, finalType);
           if (!cloudinaryResponse || !cloudinaryResponse.url) {
-            throw new Error('Failed to upload media');
+            throw new Error('Failed to upload media. Please check your internet connection and try again.');
           }
           postData = {
             ...postData,
@@ -40,7 +47,14 @@ export class PostsService {
           if (uploadError.publicId) {
             await deleteFromCloudinary(uploadError.publicId, finalType).catch(console.error);
           }
-          throw new Error('Failed to upload media. Please try again.');
+          // Provide more specific error messages based on the error type
+          if (uploadError.message.includes('timed out')) {
+            throw new Error('Upload timed out. Please check your internet connection and try again.');
+          } else if (uploadError.message.includes('size too large')) {
+            throw new Error(uploadError.message);
+          } else {
+            throw new Error('Failed to upload media. ' + uploadError.message);
+          }
         }
       }
       
