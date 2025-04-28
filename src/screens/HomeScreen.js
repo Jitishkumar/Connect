@@ -11,6 +11,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { StoriesService } from '../services/StoriesService';
 import { PostsService } from '../services/PostsService';
 import { Video } from 'expo-av';
+import PostItem from '../components/PostItem';
 
 const HomeScreen = () => {
   const navigation = useNavigation();
@@ -155,23 +156,43 @@ const HomeScreen = () => {
     <View style={styles.container}>
       {}
       <LinearGradient
-        colors={['#050505', '#050505 ']}
+        colors={['#0a0a2a', '#1a1a3a']}
+        start={{x: 0, y: 0}}
+        end={{x: 1, y: 1}}
         style={styles.header}
       >
         <Text style={styles.logo}>Flexx</Text>
         <View style={styles.headerIcons}>
-          <TouchableOpacity style={styles.iconButton}>
-            <Ionicons name="trending-up" size={24} color="#ff00ff" />
+          <TouchableOpacity 
+            style={styles.iconButton}
+            onPress={() => navigation.navigate('Trending')}
+          >
+            <LinearGradient
+              colors={['#ff00ff', '#9900ff']}
+              style={styles.iconBackground}
+            >
+              <Ionicons name="trending-up" size={22} color="#fff" />
+            </LinearGradient>
           </TouchableOpacity>
           
           <TouchableOpacity 
             style={styles.iconButton} 
             onPress={() => navigation.navigate('Search')}
           >
-            <Ionicons name="search-outline" size={24} color="#ff00ff" />
+            <LinearGradient
+              colors={['#00ffff', '#0099ff']}
+              style={styles.iconBackground}
+            >
+              <Ionicons name="search-outline" size={22} color="#fff" />
+            </LinearGradient>
           </TouchableOpacity>
           <TouchableOpacity style={styles.iconButton}>
-            <Ionicons name="notifications-outline" size={24} color="pink" />
+            <LinearGradient
+              colors={['#ff66cc', '#ff3399']}
+              style={styles.iconBackground}
+            >
+              <Ionicons name="notifications-outline" size={22} color="#fff" />
+            </LinearGradient>
             <View style={styles.notificationBadge} />
           </TouchableOpacity>
         </View>
@@ -182,12 +203,22 @@ const HomeScreen = () => {
    
 
         {/* Update create post section */}
-        <View style={styles.createPost}>
+        <LinearGradient
+          colors={['#1a1a3a', '#0d0d2a']}
+          start={{x: 0, y: 0}}
+          end={{x: 1, y: 1}}
+          style={styles.createPost}
+        >
           <View style={styles.postInputContainer}>
-            <Image
-              style={styles.userAvatar}
-              source={{ uri: 'https://via.placeholder.com/40' }}
-            />
+            <LinearGradient
+              colors={['#ff00ff', '#00ffff']}
+              style={styles.avatarBorder}
+            >
+              <Image
+                style={styles.userAvatar}
+                source={{ uri: 'https://via.placeholder.com/40' }}
+              />
+            </LinearGradient>
             <TouchableOpacity 
               style={styles.postInputButton}
               onPress={handleCreatePost}
@@ -200,22 +231,35 @@ const HomeScreen = () => {
               style={styles.postOption}
               onPress={handleCreatePost}
             >
-              <Ionicons name="create" size={20} color="#ff00ff" />
-              <Text style={[styles.optionText, { color: '#fff' }]}>Create Post</Text>
+              <LinearGradient
+                colors={['#ff00ff', '#9900ff']}
+                style={styles.createPostButton}
+              >
+                <Ionicons name="create" size={18} color="#fff" />
+                <Text style={styles.createPostText}>Create Post</Text>
+              </LinearGradient>
             </TouchableOpacity>
           </View>
-        </View>
+        </LinearGradient>
 
-        <View style={styles.stories}>
+        <LinearGradient
+          colors={['#0a0a2a', '#151540']}
+          start={{x: 0, y: 0}}
+          end={{x: 1, y: 1}}
+          style={styles.stories}
+        >
           <ScrollView horizontal showsHorizontalScrollIndicator={false}>
             <TouchableOpacity style={styles.storyItem} onPress={handleAddStory} disabled={uploading}>
-              <View style={styles.addStoryButton}>
+              <LinearGradient
+                colors={['#1a1a3a', '#0d0d2a']}
+                style={styles.addStoryButton}
+              >
                 {uploading ? (
                   <ActivityIndicator size="small" color="#ff00ff" />
                 ) : (
                   <Ionicons name="add" size={24} color="#ff00ff" />
                 )}
-              </View>
+              </LinearGradient>
               <Text style={styles.storyText}>Your story</Text>
             </TouchableOpacity>
             {stories.map((story) => (
@@ -225,7 +269,9 @@ const HomeScreen = () => {
                 onPress={() => handleStoryPress(story)}
               >
                 <LinearGradient
-                  colors={story.has_unviewed ? ['#ff00ff', '#00ff00', '#ff00ff'] : ['#888888', '#aaaaaa', '#888888']}
+                  colors={story.has_unviewed ? ['#ff00ff', '#00ffff', '#ff00ff'] : ['#888888', '#aaaaaa', '#888888']}
+                  start={{x: 0, y: 0}}
+                  end={{x: 1, y: 1}}
                   style={styles.storyRing}
                 >
                   <Image
@@ -237,7 +283,7 @@ const HomeScreen = () => {
               </TouchableOpacity>
             ))}
           </ScrollView>
-        </View>
+        </LinearGradient>
 
         {/* Post Input Modal */}
         <Modal
@@ -366,61 +412,14 @@ const HomeScreen = () => {
 
         <View style={styles.feed}>
           {posts.map((post) => (
-            <View key={post.id} style={styles.postContainer}>
-              <View style={styles.post}>
-                <View style={styles.postHeader}>
-                  <Image
-                    style={styles.postUserAvatar}
-                    source={{ uri: post.profiles.avatar_url || 'https://via.placeholder.com/40' }}
-                  />
-                  <View style={styles.postHeaderInfo}>
-                    <Text style={styles.postUsername}>{post.profiles.username}</Text>
-                    <Text style={styles.postTime}>
-                      {new Date(post.created_at).toLocaleDateString()}
-                    </Text>
-                  </View>
-                  <TouchableOpacity 
-                    style={styles.postOptionsButton}
-                    onPress={() => {
-                      setSelectedPost(post);
-                      setShowPostOptions(true);
-                    }}
-                  >
-                    <Ionicons name="ellipsis-horizontal" size={24} color="#fff" />
-                  </TouchableOpacity>
-                </View>
-                {post.caption && (
-                  <Text style={styles.postText}>{post.caption}</Text>
-                )}
-                {post.type === 'video' ? (
-                  <Video
-                    source={{ uri: post.media_url }}
-                    style={styles.postMedia}
-                    resizeMode="cover"
-                    shouldPlay={false}
-                    isLooping
-                    useNativeControls
-                  />
-                ) : post.media_url && (
-                  <Image
-                    style={styles.postMedia}
-                    source={{ uri: post.media_url }}
-                  />
-                )}
-                <View style={styles.postActions}>
-                  <View style={styles.actionGroup}>
-                    <Ionicons name="heart-outline" size={24} color="pink" />
-                    <Text style={{ color: '#e3a6d0' }}>{post.likes[0]?.count || 0}</Text>
-                  </View>
-                  <View style={styles.actionGroup}>
-                    <Ionicons name="chatbubble-outline" size={24} color="pink" />
-                    <Text style={{ color: '#e3a6d0' }}>{post.comments[0]?.count || 0}</Text>
-                  </View>
-                  <Ionicons name="share-outline" size={24} color="pink" />
-                  <Ionicons name="bookmark-outline" size={24} color="pink" />
-                </View>
-              </View>
-            </View>
+            <PostItem 
+              key={post.id} 
+              post={post} 
+              onOptionsPress={() => {
+                setSelectedPost(post);
+                setShowPostOptions(true);
+              }}
+            />
           ))}
         </View>
       </ScrollView>
@@ -456,7 +455,7 @@ const styles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    backgroundColor: '#050505',
+    backgroundColor: '#050520',
     paddingTop: 20,
   },
 
@@ -549,110 +548,171 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 2,
-    paddingTop: 2, // Added top padding for notch/camera area
-    backgroundColor: '#000033',
-    paddingLeft:20,
+    padding: 12,
+    paddingTop: 12, // Added top padding for notch/camera area
+    paddingLeft: 20,
+    paddingRight: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 0, 255, 0.2)',
   },
   logo: {
     fontSize: 30,
     fontFamily: 'Poppins_700Bold',
-    color: '#1DA1F2',
+    color: '#ff00ff',
     letterSpacing: 1,
-    marginLeft: 5,
+    textShadowColor: 'rgba(255, 0, 255, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 8,
   },
   headerIcons: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 20,
-    
+    gap: 16,
   },
   iconButton: {
-    padding: 8,
-    
+    padding: 6,
+  },
+  iconBackground: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+    backgroundColor: '#ff00ff',
+    borderWidth: 1,
+    borderColor: '#fff',
   },
   createPost: {
-    backgroundColor: '#fff',
     margin: 15,
-    borderRadius: 15,
+    borderRadius: 16,
     padding: 15,
-    borderWidth: 3,
-    borderColor: '#1a1a1a',
+    shadowColor: '#6600cc',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 0, 255, 0.2)',
   },
   postInputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-    
+    gap: 12,
+  },
+  avatarBorder: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   userAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
+    width: 42,
+    height: 42,
+    borderRadius: 21,
+    borderWidth: 2,
+    borderColor: '#0d0d2a',
   },
-  postInput: {
+  postInputButton: {
     flex: 1,
-    height: 40,
-    padding: 10,
-    backgroundColor: '#000000',
-    borderRadius: 20,
-    color: '#000',
+    height: 46,
+    padding: 12,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 23,
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 0, 255, 0.3)',
+  },
+  postInputPlaceholder: {
+    color: '#b8b8ff',
+    fontSize: 15,
   },
   postOptions: {
     flexDirection: 'row',
-    justifyContent: 'space-around',
+    justifyContent: 'flex-end',
     marginTop: 15,
   },
   postOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
   },
-  optionText: {
-    color: '#800060',
+  createPostButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    gap: 6,
+  },
+  createPostText: {
+    color: '#fff',
+    fontWeight: 'bold',
+    fontSize: 14,
   },
   stories: {
-    padding: 10,
-    backgroundColor: '#050505',
-    borderBottomWidth: 0.5,
-    borderBottomColor: '#333',
+    padding: 14,
     marginBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 0, 255, 0.2)',
   },
   storyItem: {
     alignItems: 'center',
-    marginRight: 15,
+    marginRight: 16,
   },
   addStoryButton: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#121212',
-    borderWidth: 1,
-    borderColor: '#333',
-  },
-  storyRing: {
     width: 68,
     height: 68,
     borderRadius: 34,
-    padding: 4,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#ff00ff',
+    shadowColor: '#ff00ff',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  storyRing: {
+    width: 74,
+    height: 74,
+    borderRadius: 37,
+    padding: 3,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#ff00ff',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.5,
+    shadowRadius: 6,
+    elevation: 8,
   },
   storyAvatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    borderWidth: 0.5,
-    borderColor: '#333',
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    borderWidth: 2,
+    borderColor: '#0d0d2a',
   },
   storyText: {
-    marginTop: 5,
+    marginTop: 8,
     fontSize: 12,
-    color: '#fff',
+    color: '#e0e0ff',
     textAlign: 'center',
     maxWidth: 70,
+    fontWeight: '500',
   },
   viewerContainer: {
     flex: 1,

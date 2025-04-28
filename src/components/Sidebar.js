@@ -1,22 +1,46 @@
 import React from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../config/supabase';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
+
 
 const Sidebar = ({ isVisible, onClose }) => {
   const navigation = useNavigation();
 
   const handleLogout = async () => {
     try {
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      if (!user) {
+        Alert.alert('Error', 'No user session found');
+        return;
+      }
+
+      // Store the email before signing out
+      const userEmail = user.email;
+
+      // Sign out from Supabase first
       const { error } = await supabase.auth.signOut();
       if (error) {
         Alert.alert('Error', error.message);
-      } else {
-        onClose();
-        navigation.replace('Login');
+        return;
       }
+
+      // Clear all saved accounts from AsyncStorage
+      try {
+        await AsyncStorage.removeItem('savedAccounts');
+        await AsyncStorage.removeItem('accountsLastUpdated');
+      } catch (storageError) {
+        console.error('Storage error:', storageError);
+      }
+      
+      onClose();
+      navigation.replace('Login');
     } catch (error) {
+      console.error('Logout error:', error);
       Alert.alert('Error', 'Failed to logout');
     }
   };
@@ -49,6 +73,8 @@ const Sidebar = ({ isVisible, onClose }) => {
             <Ionicons name="heart" size={24} color="#ff00ff" />
             <Text style={styles.menuText}>Confessions</Text>
           </TouchableOpacity>
+
+         
 
           <TouchableOpacity style={styles.menuItem}>
             <Ionicons name="settings" size={24} color="#ff00ff" />

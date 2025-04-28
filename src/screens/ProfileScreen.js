@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert, Modal, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import Sidebar from '../components/Sidebar';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../config/supabase';
@@ -703,21 +704,33 @@ const ProfileScreen = () => {
           
           <Text style={styles.name}>{userProfile?.full_name || 'No name set'}</Text>
           <Text style={styles.username}>@{userProfile?.username || 'username'}</Text>
-          <View style={styles.rankBadge}>
+          <LinearGradient
+            colors={['#ff00ff', '#00ff00']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={styles.rankBadge}
+          >
             <Ionicons name="trophy-outline" size={16} color="#FFD700" />
             <Text style={styles.rankNumber}>
               {userProfile?.rank 
                 ? `Rank #${userProfile.rank} ${userProfile.rank === 1 ? '(First Member!)' : ''}`
                 : 'Rank not assigned'}
             </Text>
-          </View>
+          </LinearGradient>
           {renderBio()}
           
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.editButton}
             onPress={() => navigation.navigate('EditProfile')}
           >
-            <Text style={styles.editButtonText}>EDIT PROFILE</Text>
+            <LinearGradient
+              colors={['#ff00ff', '#9400d3']}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={{ borderRadius: 25 }}
+            >
+              <Text style={styles.editButtonText}>EDIT PROFILE</Text>
+            </LinearGradient>
           </TouchableOpacity>
 
           <View style={styles.statsContainer}>
@@ -830,15 +843,24 @@ const styles = StyleSheet.create({
     marginTop: 5,
   },
   editButton: {
-    backgroundColor: 'pink',
-    paddingHorizontal: 30,
-    paddingVertical: 8,
-    borderRadius: 20,
     marginTop: 15,
+    width: '60%',
+    alignSelf: 'center',
+    elevation: 3,
+    shadowColor: '#ff00ff',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
   },
   editButtonText: {
     color: 'white',
     fontWeight: '600',
+    fontSize: 16,
+    textAlign: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 30,
+    textTransform: 'uppercase',
+    letterSpacing: 1,
   },
   statsContainer: {
     flexDirection: 'row',
@@ -956,17 +978,24 @@ const styles = StyleSheet.create({
   rankBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 215, 0, 0.1)',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 15,
-    marginTop: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    marginTop: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
   },
   rankNumber: {
-    color: '#FFD700',
-    fontSize: 14,
+    color: '#fff',
+    fontSize: 16,
     fontWeight: 'bold',
     marginLeft: 5,
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   modalContainer: {
     flex: 1,

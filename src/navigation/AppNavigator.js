@@ -17,6 +17,7 @@ import StoriesScreen from '../screens/StoriesScreen';
 import AddAccountScreen from '../screens/AddAccountScreen';
 import ConfessionScreen from '../screens/ConfessionScreen';
 import CreatePostScreen from '../screens/CreatePostScreen';
+import TrendingScreen from '../screens/TrendingScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -88,6 +89,7 @@ export const AppNavigator = () => {
       <Stack.Screen name="Stories" component={StoriesScreen} options={{ headerShown: false }} />
       <Stack.Screen name="AddAccount" component={AddAccountScreen} options={{ headerShown: false }} />
       <Stack.Screen name="CreatePost" component={CreatePostScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Trending" component={TrendingScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 };

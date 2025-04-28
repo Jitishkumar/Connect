@@ -1,311 +1,673 @@
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert, Modal, ActivityIndicator } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../config/supabase';
-import { uploadToCloudinary, deleteFromCloudinary } from '../config/cloudinary';
-// UUID generator compatible with Supabase UUID type
-const generateUUID = () => {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
+import { useAccounts } from '../context/AccountContext';
+import AccountSwitcherModal from '../components/AccountSwitcherModal';
+import Sidebar from '../components/Sidebar';
+
+const ProfileScreen = () => {
+  const { accounts, addAccount } = useAccounts();
+  const [isSidebarVisible, setSidebarVisible] = useState(false);
+  const [isAccountSwitcherVisible, setAccountSwitcherVisible] = useState(false);
+  const [userProfile, setUserProfile] = useState(null);
+  const [showFullBio, setShowFullBio] = useState(false);
+  const [followersCount, setFollowersCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
+  const [showFollowersModal, setShowFollowersModal] = useState(false);
+  const [showFollowingModal, setShowFollowingModal] = useState(false);
+  const [followers, setFollowers] = useState([]);
+  const [following, setFollowing] = useState([]);
+  const [loadingConnections, setLoadingConnections] = useState(false);
+  const navigation = useNavigation();
+
+  const loadUserProfile = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { data, error } = await supabase
+          .from('profiles')
+          .select('*')
+          .eq('id', user.id)
+          .single();
+
+        if (error) throw error;
+        if (data) setUserProfile(data);
+      }
+    } catch (error) {
+      console.error('Error loading profile:', error);
+    }
+  };
+
+  const fetchFollowersCount = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { count, error } = await supabase
+          .from('follows')
+          .select('*', { count: 'exact' })
+          .eq('following_id', user.id);
+
+        if (error) throw error;
+        setFollowersCount(count || 0);
+      }
+    } catch (error) {
+      console.error('Error fetching followers count:', error);
+    }
+  };
+
+  const fetchFollowingCount = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const { count, error } = await supabase
+          .from('follows')
+          .select('*', { count: 'exact' })
+          .eq('follower_id', user.id);
+
+        if (error) throw error;
+        setFollowingCount(count || 0);
+      }
+    } catch (error) {
+      console.error('Error fetching following count:', error);
+    }
+  };
+
+  const fetchFollowers = async () => {
+    try {
+      setLoadingConnections(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('follows')
+        .select(`
+          follower_id,
+          profiles!follows_follower_id_fkey (
+            id,
+            username,
+            full_name,
+            avatar_url
+          )
+        `)
+        .eq('following_id', user.id);
+
+      if (error) {
+        console.error('Error fetching followers:', error);
+        return;
+      }
+
+      const followersList = data.map(item => ({
+        ...item.profiles,
+        avatar_url: item.profiles.avatar_url
+      }));
+
+      setFollowers(followersList);
+      setShowFollowersModal(true);
+    } catch (error) {
+      console.error('Error fetching followers:', error);
+      Alert.alert('Error', 'Failed to load followers');
+    } finally {
+      setLoadingConnections(false);
+    }
+  };
+
+  const fetchFollowing = async () => {
+    try {
+      setLoadingConnections(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('follows')
+        .select(`
+          following_id,
+          profiles!follows_following_id_fkey (
+            id,
+            username,
+            full_name,
+            avatar_url
+          )
+        `)
+        .eq('follower_id', user.id);
+
+      if (error) {
+        console.error('Error fetching following:', error);
+        return;
+      }
+
+      const followingList = data.map(item => ({
+        ...item.profiles,
+        avatar_url: item.profiles.avatar_url
+      }));
+
+      setFollowing(followingList);
+      setShowFollowingModal(true);
+    } catch (error) {
+      console.error('Error fetching following:', error);
+      Alert.alert('Error', 'Failed to load following');
+    } finally {
+      setLoadingConnections(false);
+    }
+  };
+
+  const renderBio = () => {
+    if (!userProfile?.bio) return null;
+
+    const bioText = userProfile.bio;
+    const shouldTruncate = bioText.length > 100;
+    const displayText = shouldTruncate && !showFullBio
+      ? `${bioText.substring(0, 100)}...`
+      : bioText;
+
+    return (
+      <View style={styles.bioContainer}>
+        <Text style={styles.bioText}>
+          {displayText}
+          {shouldTruncate && (
+            <Text
+              style={styles.moreText}
+              onPress={() => setShowFullBio(!showFullBio)}
+            >
+              {showFullBio ? ' Show less' : ' Show more'}
+            </Text>
+          )}
+        </Text>
+      </View>
+    );
+  };
+
+  useEffect(() => {
+    loadUserProfile();
+    fetchFollowersCount();
+    fetchFollowingCount();
+  }, []);
+
+  return (
+    <View style={styles.container}>
+      <Sidebar visible={isSidebarVisible} onClose={() => setSidebarVisible(false)} />
+      <LinearGradient
+        colors={['#0a0a2a', '#1a1a3a']}
+        start={{x: 0, y: 0}}
+        end={{x: 1, y: 1}}
+        style={styles.header}
+      >
+        <View style={styles.headerContent}>
+          <TouchableOpacity onPress={() => setSidebarVisible(true)}>
+            <Ionicons name="menu-outline" size={24} color="#fff" />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Profile</Text>
+          <View style={styles.headerIcons}>
+            <TouchableOpacity 
+              style={styles.iconButton}
+              onPress={() => setAccountSwitcherVisible(true)}
+            >
+              <LinearGradient
+                colors={['#ff00ff', '#9900ff']}
+                style={styles.iconBackground}
+              >
+                <Ionicons name="people-outline" size={22} color="#fff" />
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </LinearGradient>
+
+      <ScrollView>
+        <View style={styles.profileSection}>
+          {/* Cover Photo */}
+          <View style={styles.coverPhotoContainer}>
+            <Image
+              style={styles.coverPhoto}
+              source={userProfile?.cover_url 
+                ? { uri: userProfile.cover_url } 
+                : require('../../assets/default-cover.png')}
+            />
+          </View>
+          
+          <Image
+            style={styles.profileImage}
+            source={userProfile?.avatar_url 
+              ? { uri: userProfile.avatar_url } 
+              : require('../../assets/default-avatar.png')}
+          />
+          <Text style={styles.name}>{userProfile?.full_name || 'No name set'}</Text>
+          <Text style={styles.username}>@{userProfile?.username || 'username'}</Text>
+          
+          <View style={styles.rankBadge}>
+            <Ionicons name="trophy-outline" size={16} color="#FFD700" />
+            <Text style={styles.rankNumber}>
+              {userProfile?.rank 
+                ? `Rank #${userProfile.rank} ${userProfile.rank === 1 ? '(First Member!)' : ''}`
+                : 'Rank not assigned'}
+            </Text>
+          </View>
+
+          <TouchableOpacity 
+            style={styles.editProfileButton}
+            onPress={() => navigation.navigate('EditProfile')}
+          >
+            <LinearGradient
+              colors={['#ff00ff', '#9900ff']}
+              style={styles.editProfileGradient}
+              start={{x: 0, y: 0}}
+              end={{x: 1, y: 0}}
+            >
+              <Text style={styles.editProfileText}>Edit Profile</Text>
+            </LinearGradient>
+          </TouchableOpacity>
+          
+          {renderBio()}
+
+          <View style={styles.statsContainer}>
+            <TouchableOpacity style={styles.stat}>
+              <Text style={styles.statNumber}>100</Text>
+              <Text style={styles.statLabel}>Posts</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.stat}>
+              <Text style={styles.statNumber}>20</Text>
+              <Text style={styles.statLabel}>Shorts</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.stat}
+              onPress={fetchFollowers}
+            >
+              <Text style={styles.statNumber}>{followersCount}</Text>
+              <Text style={styles.statLabel}>Followers</Text>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.stat}
+              onPress={fetchFollowing}
+            >
+              <Text style={styles.statNumber}>{followingCount}</Text>
+              <Text style={styles.statLabel}>Following</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        <View style={styles.tabsContainer}>
+          <TouchableOpacity style={styles.tabButton}>
+            <Text style={styles.tabButtonText}>Posts</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.tabButton}>
+            <Text style={styles.tabButtonText}>Shorts</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.tabButton, styles.activeTab]}>
+            <Text style={[styles.tabButtonText, styles.activeTabText]}>Details</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.detailsSection}>
+          <View style={styles.detailItem}>
+            <Ionicons name="person-outline" size={24} color="#666" />
+            <View style={styles.detailContent}>
+              <Text style={styles.detailTitle}>About me</Text>
+              <Text style={styles.detailText}>
+                {userProfile?.bio || 'No bio added yet'}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.detailItem}>
+            <Ionicons name="trophy-outline" size={24} color="#FFD700" />
+            <View style={styles.detailContent}>
+              <Text style={styles.detailTitle}>Member Rank</Text>
+              <Text style={styles.detailText}>
+                {userProfile?.rank 
+                  ? `Member #${userProfile.rank} on Flexx`
+                  : 'Rank not assigned yet'}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </ScrollView>
+
+      <AccountSwitcherModal
+        visible={isAccountSwitcherVisible}
+        onClose={() => setAccountSwitcherVisible(false)}
+        loadUserProfile={loadUserProfile}
+      />
+    </View>
+  );
 };
 
-export class StoriesService {
-  // Get all active stories grouped by user
-  static async getActiveStories() {
-    try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-      
-      // Get current timestamp
-      const now = new Date();
-      const twentyFourHoursAgo = new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString();
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  header: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    padding: 18,
+    paddingTop: 50,
+  },
+  headerContent: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    width: '100%',
+  },
+  headerTitle: {
+    color: '#fff',
+    fontSize: 20,
+    fontWeight: 'bold',
+  },
+  headerIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  iconButton: {
+    marginLeft: 15,
+  },
+  iconBackground: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileSection: {
+    alignItems: 'center',
+    padding: 20,
+    paddingTop: 0,
+  },
+  coverPhotoContainer: {
+    width: '100%',
+    height: 200,
+    marginBottom: -50,
+    borderRadius: 15,
+    overflow: 'hidden',
+    backgroundColor: '#1a1a1a',
+  },
+  coverPhoto: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+    backgroundColor: '#1a1a1a',
+  },
+  profileImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 3,
+    borderColor: '#e3a6be',
+    backgroundColor: '#1a1a1a',
+    marginTop: 10,
+  },
+  name: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: 'white',
+    marginTop: 10,
+  },
+  username: {
+    fontSize: 16,
+    color: '#faf7f8',
+    marginTop: 5,
+  },
+  bioContainer: {
+    marginTop: 10,
+    paddingHorizontal: 20,
+    width: '100%',
+  },
+  bioText: {
+    color: '#faf7f8',
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  moreText: {
+    color: '#ff00ff',
+    fontWeight: '600',
+  },
+  rankBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 15,
+    marginTop: 5,
+  },
+  rankNumber: {
+    color: '#FFD700',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginLeft: 5,
+  },
+  statsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    width: '100%',
+    marginTop: 20,
+    paddingVertical: 15,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#1a1a1a',
+  },
+  stat: {
+    alignItems: 'center',
+  },
+  statNumber: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 5,
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    paddingHorizontal: 40,
+    marginTop: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a1a1a',
+  },
+  tabButton: {
+    marginRight: 30,
+    paddingBottom: 10,
+    flex: 1,
+    alignItems: 'center',
+  },
+  tabButtonText: {
+    color: '#faf7f8',
+    fontSize: 16,
+  },
+  activeTab: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#faf7f8',
+  },
+  activeTabText: {
+    color: '#1DA1F2',
+  },
+  detailsSection: {
+    padding: 20,
+  },
+  detailItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 20,
+  },
+  detailContent: {
+    marginLeft: 15,
+    flex: 1,
+  },
+  detailTitle: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 5,
+  },
+  detailText: {
+    color: '#faf7f8',
+    fontSize: 14,
+  },
+  editProfileButton: {
+    width: '80%',
+    marginTop: 15,
+    marginBottom: 10,
+    borderRadius: 25,
+    overflow: 'hidden',
+  },
+  editProfileGradient: {
+    paddingVertical: 12,
+    paddingHorizontal: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  editProfileText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '600',
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#1a1a1a',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingTop: 30,
+    minHeight: '40%',
+  },
+  modalTitle: {
+    color: '#ff00ff',
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 25,
+    textAlign: 'center',
+  },
+  connectionsList: {
+    maxHeight: 400,
+  },
+  connectionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  connectionAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 15,
+    borderWidth: 1,
+    borderColor: '#ff00ff',
+  },
+  connectionInfo: {
+    flex: 1,
+  },
+  connectionName: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  connectionUsername: {
+    color: '#999',
+    fontSize: 14,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+  },
+  emptyText: {
+    color: '#666',
+    fontSize: 16,
+    marginTop: 10,
+  },
+  loadingContainer: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  currentAccountItem: {
+    backgroundColor: 'rgba(255, 0, 255, 0.1)',
+    borderWidth: 1,
+    borderColor: '#ff00ff',
+    borderRadius: 10,
+  },
+  currentAccountBadge: {
+    marginLeft: 'auto',
+  },
+  connectionsList: {
+    maxHeight: 400,
+  },
+  connectionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  connectionAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 15,
+    borderWidth: 1,
+    borderColor: '#ff00ff',
+  },
+  connectionInfo: {
+    flex: 1,
+  },
+  connectionName: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  connectionUsername: {
+    color: '#999',
+    fontSize: 14,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+  },
+  emptyText: {
+    color: '#666',
+    fontSize: 16,
+    marginTop: 10,
+  },
+  loadingContainer: {
+    padding: 40,
+    alignItems: 'center',
+  }
+});
+export default ProfileScreen;
 
-      // Get all stories with a single query
-      const { data, error } = await supabase
-        .from('stories')
-        .select(`
-          *,
-          user:user_id (id, username, avatar_url)
-        `)
-        .gte('created_at', twentyFourHoursAgo)
-        .or(`user_id.eq.${user.id},followers_only.eq.false`)
-        .order('created_at', { ascending: false });
+const renderBio = () => {
+  if (!userProfile?.bio) return null;
 
-      if (error) throw error;
+  const bioText = userProfile.bio;
+  const shouldTruncate = bioText.length > 100;
+  const displayText = shouldTruncate && !showFullBio
+    ? `${bioText.substring(0, 100)}...`
+    : bioText;
 
-      // Get viewed stories for the current user
-      const { data: viewedStories, error: viewedError } = await supabase
-        .from('story_views')
-        .select('story_id')
-        .eq('user_id', user.id);
-      
-      if (viewedError) throw viewedError;
-      
-      // Create a set of viewed story IDs for faster lookup
-      const viewedStoryIds = new Set(viewedStories?.map(view => view.story_id) || []);
-      
-      // Add viewed status to each story
-      const storiesWithViewedStatus = data.map(story => ({
-        ...story,
-        is_viewed: viewedStoryIds.has(story.id)
-      }));
-      
-      // Group stories by user
-      const groupedStories = storiesWithViewedStatus.reduce((groups, story) => {
-        const userId = story.user_id;
-        const existingGroup = groups.find(group => group.user_id === userId);
-        
-        if (existingGroup) {
-          existingGroup.stories.push(story);
-        } else {
-          groups.push({
-            user_id: userId,
-            user: story.user,
-            stories: [story],
-            has_unviewed: !story.is_viewed
-          });
-        }
-        
-        // Update has_unviewed flag if any story is unviewed
-        if (existingGroup && !story.is_viewed) {
-          existingGroup.has_unviewed = true;
-        }
-        
-        return groups;
-      }, []);
-      
-      return groupedStories;
-      
-    } catch (error) {
-      console.error('Error fetching active stories:', error);
-      throw error;
-    }
-  }
-
-  // Helper function to process stories data
-  static async processStoriesData(data, userId) {
-    // Get viewed stories for the current user
-    const { data: viewedStories } = await supabase
-      .from('story_views')
-      .select('story_id')
-      .eq('user_id', userId);
-    
-    // Create a set of viewed story IDs for faster lookup
-    const viewedStoryIds = new Set(viewedStories?.map(view => view.story_id) || []);
-    
-    // Add viewed status to each story
-    const storiesWithViewedStatus = data.map(story => ({
-      ...story,
-      is_viewed: viewedStoryIds.has(story.id)
-    }));
-    
-    // Group stories by user
-    return storiesWithViewedStatus.reduce((groups, story) => {
-      const userId = story.user_id;
-      const existingGroup = groups.find(group => group.user_id === userId);
-      
-      if (existingGroup) {
-        existingGroup.stories.push(story);
-        if (!story.is_viewed) existingGroup.has_unviewed = true;
-      } else {
-        groups.push({
-          user_id: userId,
-          user: story.user,
-          stories: [story],
-          has_unviewed: !story.is_viewed
-        });
-      }
-      
-      return groups;
-    }, []);
-  }
-  
-  // Upload a new story
-  static async uploadStory(uri, type = 'image') {
-    try {
-      // First upload media to Cloudinary
-      const cloudinaryResponse = await uploadToCloudinary(uri, type);
-      
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-      
-      // Check if user has any stories in the last 24 hours
-      const now = new Date();
-      const { data: existingStories, error: fetchError } = await supabase
-        .from('stories')
-        .select('id, story_group_id')
-        .eq('user_id', user.id)
-        .gte('created_at', new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString())
-        .order('created_at', { ascending: false });
-      
-      if (fetchError) throw fetchError;
-      
-      let storyGroupId;
-      let isFirstStory = true;
-      
-      if (existingStories && existingStories.length > 0) {
-        storyGroupId = existingStories[0].story_group_id;
-        isFirstStory = false;
-      } else {
-        storyGroupId = generateUUID();
-      }
-      
-      // Save story to Supabase (removed followersOnly parameter)
-      const { data, error } = await supabase
-        .from('stories')
-        .insert({
-          user_id: user.id,
-          media_url: cloudinaryResponse.url,
-          cloudinary_public_id: cloudinaryResponse.publicId,
-          type: type,
-          story_group_id: storyGroupId,
-          is_first_story: isFirstStory
-        })
-        .select()
-        .single();
-      
-      if (error) throw error;
-      return data;
-      
-    } catch (error) {
-      console.error('Error uploading story:', error);
-      throw error;
-    }
-  }
-  
-  // Delete a story
-  static async deleteStory(storyId) {
-    try {
-      // First get the story to get Cloudinary public_id
-      const { data: story, error: fetchError } = await supabase
-        .from('stories')
-        .select('cloudinary_public_id, type')
-        .eq('id', storyId)
-        .single();
-      
-      if (fetchError) throw fetchError;
-      
-      // Delete from Cloudinary
-      await deleteFromCloudinary(story.cloudinary_public_id, story.type);
-      
-      // Delete from Supabase
-      const { error: deleteError } = await supabase
-        .from('stories')
-        .delete()
-        .eq('id', storyId);
-      
-      if (deleteError) throw deleteError;
-      
-      return true;
-    } catch (error) {
-      console.error('Error deleting story:', error);
-      throw error;
-    }
-  }
-  
-  // Get stories for a specific user
-  static async getUserStories(userId) {
-    try {
-      // Get current timestamp
-      const now = new Date();
-      
-      // Get all active stories for the specified user
-      const { data, error } = await supabase
-        .from('stories')
-        .select('*')
-        .eq('user_id', userId)
-        .gte('created_at', new Date(now.getTime() - 24 * 60 * 60 * 1000).toISOString())
-        .order('created_at', { ascending: true });
-      
-      if (error) throw error;
-      return data;
-      
-    } catch (error) {
-      console.error('Error fetching user stories:', error);
-      throw error;
-    }
-  }
-  
-  // Mark a story as viewed by the current user
-  static async markStoryAsViewed(storyId) {
-    try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-      
-      // Insert a record into story_views table
-      const { error } = await supabase
-        .from('story_views')
-        .upsert({
-          story_id: storyId,
-          user_id: user.id
-        }, { onConflict: 'story_id,user_id' });
-      
-      if (error) throw error;
-      return true;
-      
-    } catch (error) {
-      console.error('Error marking story as viewed:', error);
-      return false;
-    }
-  }
-  
-  // Check if a story has been viewed by the current user
-  static async hasViewedStory(storyId) {
-    try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-      
-      // Check if a record exists in story_views table
-      const { data, error } = await supabase
-        .from('story_views')
-        .select('id')
-        .eq('story_id', storyId)
-        .eq('user_id', user.id)
-        .single();
-      
-      if (error && error.code !== 'PGRST116') throw error; // PGRST116 is the error code for no rows returned
-      
-      return !!data;
-      
-    } catch (error) {
-      console.error('Error checking if story is viewed:', error);
-      return false;
-    }
-  }
-  
-  // Check if any story in a story group has been viewed
-  static async hasViewedStoryGroup(storyGroupId) {
-    try {
-      // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
-      if (!user) throw new Error('User not authenticated');
-      
-      // Use the custom function we created in SQL
-      const { data, error } = await supabase
-        .rpc('has_viewed_story_group', { group_id: storyGroupId });
-      
-      if (error) throw error;
-      
-      return data;
-      
-    } catch (error) {
-      console.error('Error checking if story group is viewed:', error);
-      return false;
-    }
-  }
-  
-  // Get the current user ID
-  static async getCurrentUserId() {
-    try {
-      const { data } = await supabase.auth.getUser();
-      return data?.user?.id || null;
-    } catch (error) {
-      console.error('Error getting current user ID:', error);
-      return null;
-    }
-  }
-}
+  return (
+    <View style={styles.bioContainer}>
+      <Text style={styles.bioText}>
+        {displayText}
+        {shouldTruncate && (
+          <Text
+            style={styles.moreText}
+            onPress={() => setShowFullBio(!showFullBio)}
+          >
+            {showFullBio ? ' Show less' : ' Show more'}
+          </Text>
+        )}
+      </Text>
+    </View>
+  );
+};

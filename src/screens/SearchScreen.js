@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TextInput, FlatList, TouchableOpacity, Image, A
 import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../config/supabase';
 import { useNavigation } from '@react-navigation/native';
+import { LinearGradient } from 'expo-linear-gradient';
 
 const SearchScreen = () => {
   const [searchQuery, setSearchQuery] = useState('');
@@ -67,12 +68,17 @@ const SearchScreen = () => {
 
   return (
     <View style={styles.container}>
-      <View style={styles.header}>
+      <LinearGradient
+        colors={['#0a0a2a', '#1a1a3a']}
+        start={{x: 0, y: 0}}
+        end={{x: 1, y: 1}}
+        style={styles.header}
+      >
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Ionicons name="arrow-back" size={24} color="#ff00ff" />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Search</Text>
-      </View>
+      </LinearGradient>
       
       <View style={styles.searchContainer}>
         <Ionicons name="search" size={20} color="#666" style={styles.searchIcon} />
@@ -112,13 +118,15 @@ const SearchScreen = () => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#050520',
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     padding: 16,
     paddingTop: 50,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 0, 255, 0.2)',
   },
   headerTitle: {
     fontSize: 20,
@@ -129,10 +137,12 @@ const styles = StyleSheet.create({
   searchContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1a1a1a',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
     borderRadius: 20,
     margin: 16,
     paddingHorizontal: 15,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 0, 255, 0.3)',
   },
   searchIcon: {
     marginRight: 10,
@@ -148,7 +158,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 15,
     borderBottomWidth: 1,
-    borderBottomColor: '#1a1a1a',
+    borderBottomColor: 'rgba(255, 0, 255, 0.1)',
+    backgroundColor: 'rgba(26, 26, 58, 0.3)',
+    marginHorizontal: 10,
+    marginVertical: 5,
+    borderRadius: 10,
   },
   userAvatar: {
     width: 50,

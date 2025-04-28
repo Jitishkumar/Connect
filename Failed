@@ -1,530 +1,1095 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { 
-  StyleSheet, 
-  View, 
-  Text, 
-  Image, 
-  TouchableOpacity, 
-  Dimensions, 
-  StatusBar,
-  Alert,
-  ActivityIndicator,
-  Modal,
-  Platform
-} from 'react-native';
-import { Video } from 'expo-av';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert, Modal } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useRoute } from '@react-navigation/native';
-import { StoriesService } from '../services/StoriesService';
-import { LinearGradient } from 'expo-linear-gradient';
+import Sidebar from '../components/Sidebar';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../config/supabase';
+import { useAccounts } from '../context/AccountContext';
 
-const { width, height } = Dimensions.get('window');
 
-const StoriesScreen = () => {
+// Define AccountSwitcherModal component outside of the main component
+const AccountSwitcherModal = ({ visible, onClose, loadUserProfile }) => {
+  const { accounts, addAccount } = useAccounts();
   const navigation = useNavigation();
-  const route = useRoute();
-  const { storyGroupId, userId, initialStoryIndex = 0 } = route.params || {};
-  
-  const [stories, setStories] = useState([]);
-  const [currentIndex, setCurrentIndex] = useState(initialStoryIndex);
-  const [loading, setLoading] = useState(true);
-  const [progress, setProgress] = useState(0);
-  const [paused, setPaused] = useState(false);
-  const [menuVisible, setMenuVisible] = useState(false);
-  const [userInfo, setUserInfo] = useState(null);
-  
-  const videoRef = useRef(null);
-  const progressInterval = useRef(null);
-  const storyTimeout = useRef(null);
-  
-  // Load stories when component mounts
+  const [currentUser, setCurrentUser] = useState(null);
+  const [refreshedAccounts, setRefreshedAccounts] = useState([]);
+
+  // Get current user and refresh accounts when modal opens
   useEffect(() => {
-    loadStories();
-    
-    // Cleanup on unmount
-    return () => {
-      clearInterval(progressInterval.current);
-      clearTimeout(storyTimeout.current);
-    };
-  }, []);
-  
-  // Handle story progress and auto-advance
-  useEffect(() => {
-    if (stories.length > 0 && !loading) {
-      // Mark story as viewed
-      markStoryAsViewed();
-      
-      // Reset progress
-      setProgress(0);
-      
-      // Clear previous intervals/timeouts
-      clearInterval(progressInterval.current);
-      clearTimeout(storyTimeout.current);
-      
-      // Start progress for current story
-      startProgress();
+    if (visible) {
+      getCurrentUser();
+      refreshAccountData();
     }
-  }, [currentIndex, stories, loading]);
-  
-  const loadStories = async () => {
+  }, [visible]);
+
+  const getCurrentUser = async () => {
     try {
-      setLoading(true);
-      
-      // Get stories for the specific user/group
-      const data = await StoriesService.getUserStories(userId);
-      
-      if (data && data.length > 0) {
-        setStories(data);
-        setUserInfo(data[0].user);
-      } else {
-        // No stories found, go back
-        navigation.goBack();
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        setCurrentUser(user.id);
       }
     } catch (error) {
-      console.error('Error loading stories:', error);
-      Alert.alert('Error', 'Failed to load stories');
-      navigation.goBack();
-    } finally {
-      setLoading(false);
+      console.error("Error getting current user:", error);
     }
   };
-  
-  const markStoryAsViewed = async () => {
-    if (stories.length > 0 && currentIndex < stories.length) {
-      try {
-        await StoriesService.markStoryAsViewed(stories[currentIndex].id);
-      } catch (error) {
-        console.error('Error marking story as viewed:', error);
-      }
-    }
-  };
-  
-  const startProgress = () => {
-    // Duration for each story (5 seconds)
-    const storyDuration = 5000;
-    const updateInterval = 50; // Update progress every 50ms
-    const incrementValue = updateInterval / storyDuration;
-    
-    // Start progress interval
-    progressInterval.current = setInterval(() => {
-      if (!paused) {
-        setProgress(prev => {
-          const newProgress = prev + incrementValue;
-          return newProgress >= 1 ? 1 : newProgress;
-        });
-      }
-    }, updateInterval);
-    
-    // Set timeout to move to next story
-    storyTimeout.current = setTimeout(() => {
-      if (!paused) {
-        goToNextStory();
-      }
-    }, storyDuration);
-  };
-  
-  const goToPreviousStory = () => {
-    if (currentIndex > 0) {
-      setCurrentIndex(currentIndex - 1);
-    } else {
-      // If at first story, go back to previous user's stories or exit
-      navigation.goBack();
-    }
-  };
-  
-  const goToNextStory = () => {
-    if (currentIndex < stories.length - 1) {
-      setCurrentIndex(currentIndex + 1);
-    } else {
-      // If at last story, go back to home
-      navigation.goBack();
-    }
-  };
-  
-  const handlePress = (event) => {
-    const { locationX } = event.nativeEvent;
-    
-    // Determine if press is on left or right side of screen
-    if (locationX < width / 3) {
-      // Left side - go to previous story
-      goToPreviousStory();
-    } else if (locationX > (width * 2) / 3) {
-      // Right side - go to next story
-      goToNextStory();
-    } else {
-      // Middle - pause/play
-      setPaused(!paused);
-      
-      if (videoRef.current) {
-        if (paused) {
-          videoRef.current.playAsync();
-        } else {
-          videoRef.current.pauseAsync();
-        }
-      }
-    }
-  };
-  
-  const handleDeleteStory = async () => {
+
+  // Fetch the latest profile data for all accounts
+  const refreshAccountData = async () => {
     try {
-      setMenuVisible(false);
-      setPaused(true);
+      const uniqueIds = {};
       
-      // Show confirmation dialog
-      Alert.alert(
-        'Delete Story',
-        'Are you sure you want to delete this story?',
-        [
-          {
-            text: 'Cancel',
-            onPress: () => setPaused(false),
-            style: 'cancel',
-          },
-          {
-            text: 'Delete',
-            onPress: async () => {
-              try {
-                await StoriesService.deleteStory(stories[currentIndex].id);
-                
-                // If this was the only story, go back
-                if (stories.length === 1) {
-                  navigation.goBack();
-                } else {
-                  // Remove the deleted story from the array
-                  const updatedStories = [...stories];
-                  updatedStories.splice(currentIndex, 1);
-                  
-                  // Update stories array
-                  setStories(updatedStories);
-                  
-                  // Adjust current index if needed
-                  if (currentIndex >= updatedStories.length) {
-                    setCurrentIndex(updatedStories.length - 1);
-                  }
-                }
-              } catch (error) {
-                console.error('Error deleting story:', error);
-                Alert.alert('Error', 'Failed to delete story');
-                setPaused(false);
-              }
-            },
-            style: 'destructive',
-          },
-        ],
-        { cancelable: false }
+      // Get the most recent account for each ID
+      accounts.forEach(account => {
+        uniqueIds[account.id] = account;
+      });
+      
+      // Convert to array
+      const uniqueAccounts = Object.values(uniqueIds);
+      
+      // Refresh each account's data
+      const refreshed = await Promise.all(
+        uniqueAccounts.map(async (account) => {
+          try {
+            const { data, error } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', account.id)
+              .single();
+  
+            if (error) throw error;
+  
+            if (data) {
+              // Update the account in context
+              const updatedAccount = {
+                ...account,
+                username: data.username,
+                avatar_url: data.avatar_url
+              };
+              
+              // Update in context
+              addAccount(updatedAccount);
+              
+              return updatedAccount;
+            }
+            return account;
+          } catch (e) {
+            console.error("Error refreshing account:", e);
+            return account;
+          }
+        })
       );
+      
+      setRefreshedAccounts(refreshed);
     } catch (error) {
-      console.error('Error handling delete:', error);
-      setPaused(false);
+      console.error("Error refreshing accounts:", error);
     }
   };
-  
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color="#ff00ff" />
-      </View>
-    );
-  }
-  
-  if (stories.length === 0) {
-    return null; // This should not happen as we navigate back if no stories
-  }
-  
-  const currentStory = stories[currentIndex];
-  
+
+  // Use refreshed accounts if available, otherwise use the filtered accounts from context
+  const displayAccounts = refreshedAccounts.length > 0 ? refreshedAccounts : 
+    Object.values(accounts.reduce((acc, account) => {
+      acc[account.id] = account;
+      return acc;
+    }, {}));
+
   return (
-    <View style={styles.container}>
-      <StatusBar translucent backgroundColor="transparent" barStyle="light-content" />
-      
-      {/* Story Content */}
-      <TouchableOpacity 
-        activeOpacity={1} 
-        style={styles.storyContainer}
-        onPress={handlePress}
-      >
-        {/* Progress Bar */}
-        <View style={styles.progressContainer}>
-          {stories.map((_, index) => (
-            <View key={index} style={styles.progressBarBackground}>
-              <View 
-                style={[styles.progressBar, { 
-                  width: index === currentIndex ? `${progress * 100}%` : index < currentIndex ? '100%' : '0%' 
-                }]}
-              />
-            </View>
-          ))}
-        </View>
-        
-        {/* User Info */}
-        <View style={styles.header}>
-          <View style={styles.userInfo}>
-            <Image 
-              source={{ uri: userInfo?.avatar_url || 'https://via.placeholder.com/40' }} 
-              style={styles.avatar} 
-            />
-            <Text style={styles.username}>{userInfo?.username}</Text>
-            <Text style={styles.timestamp}>
-              {new Date(currentStory?.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-            </Text>
-          </View>
+    <Modal
+      visible={visible}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={onClose}
+    >
+      <View style={styles.modalContainer}>
+        <View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>Switch Account</Text>
           
-          {/* Menu Button (only show for user's own stories) */}
-          {currentStory.user_id === userId && (
+          {displayAccounts.map((account, index) => (
             <TouchableOpacity 
-              style={styles.menuButton}
-              onPress={() => {
-                setPaused(true);
-                setMenuVisible(true);
+              key={index}
+              style={[
+                styles.accountItem, 
+                currentUser === account.id && styles.currentAccountItem
+              ]}
+              onPress={async () => {  // Make sure this is an async function
+                try {
+                  // Only switch if it's not the current account
+                  if (currentUser !== account.id) {
+                    onClose(); // Close modal first
+                    
+                    // Try to sign in with the stored credentials
+                    const { data, error } = await supabase.auth.signInWithPassword({
+                      email: account.email,
+                      password: account.stored_password || '' // This will likely fail without password
+                    });
+                    
+                    if (error) {
+                      // If direct sign-in fails, try session refresh if available
+                      if (account.session_token) {
+                        const { data: sessionData, error: sessionError } = await supabase.auth.refreshSession({
+                          refresh_token: account.session_token
+                        });
+                        
+                        if (sessionError) {
+                          // If session refresh fails, navigate to login
+                          Alert.alert(
+                            "Session Expired", 
+                            "Please log in again to access this account.",
+                            [
+                              { 
+                                text: "OK", 
+                                onPress: () => navigation.navigate('Login', { email: account.email })
+                              }
+                            ]
+                          );
+                          return;
+                        }
+                        
+                        // If session refresh worked, force reload the profile
+                        await loadUserProfile();
+                        
+                        // Navigate to Main to refresh the UI
+                        // In the AccountSwitcherModal component, update both navigation reset calls
+                        
+                        // Around line 130-140, change this:
+                        navigation.reset({
+                          index: 0,
+                          routes: [{ name: 'Main' }],
+                        });
+                        
+                        // To this:
+                        navigation.reset({
+                          index: 0,
+                          routes: [{ name: 'MainApp' }],
+                        });
+                        return;
+                      } else {
+                        // No session token, navigate to login
+                        Alert.alert(
+                          "Login Required", 
+                          "Please log in to access this account.",
+                          [
+                            { 
+                              text: "OK", 
+                              onPress: () => navigation.navigate('Login', { email: account.email })
+                            }
+                          ]
+                        );
+                        return;
+                      }
+                    }
+                    
+                    // If direct sign-in worked, force reload the profile
+                    await loadUserProfile();
+                    
+                    // Navigate to Main to refresh the UI
+                    // In the AccountSwitcherModal component, update both navigation reset calls
+                    
+                    // Change this:
+                    navigation.reset({
+                      index: 0,
+                      routes: [{ name: 'Main' }],
+                    });
+                    
+                    // To this:
+                    navigation.reset({
+                      index: 0,
+                      routes: [{ name: 'MainApp' }],
+                    });
+                    
+                    // Second instance around line 156
+                    // Change this:
+                    navigation.reset({
+                      index: 0,
+                      routes: [{ name: 'Main' }],
+                    });
+                    
+                    // To this:
+                    navigation.reset({
+                      index: 0,
+                      routes: [{ name: 'Profile' }],
+                    });
+                  } else {
+                    // Just close the modal if it's the current account
+                    onClose();
+                  }
+                } catch (error) {
+                  console.error("Error switching account:", error);
+                  Alert.alert("Error", "Failed to switch account. Please try logging in manually.");
+                  onClose();
+                }
               }}
             >
-              <Ionicons name="ellipsis-vertical" size={24} color="#fff" />
+              <Image 
+                source={{ uri: account.avatar_url || 'https://via.placeholder.com/150' }}
+                style={styles.accountAvatar}
+              />
+              <Text style={styles.accountUsername}>{account.username}</Text>
+              {currentUser === account.id && (
+                <View style={styles.currentAccountBadge}>
+                  <Ionicons name="checkmark-circle" size={20} color="#ff00ff" />
+                </View>
+              )}
             </TouchableOpacity>
-          )}
+          ))}
+
+          <TouchableOpacity 
+            style={styles.addAccountButton}
+            onPress={() => {
+              onClose();
+              navigation.navigate('Login');
+            }}
+          >
+            <Ionicons name="add-circle-outline" size={24} color="#ff00ff" />
+            <Text style={styles.addAccountText}>Add Account</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.closeButton}
+            onPress={onClose}
+          >
+            <Text style={styles.closeText}>Close</Text>
+          </TouchableOpacity>
         </View>
-        
-        {/* Story Media */}
-        <View style={styles.mediaContainer}>
-          {currentStory.type === 'video' ? (
-            <Video
-              ref={videoRef}
-              source={{ uri: currentStory.media_url }}
-              style={styles.media}
-              resizeMode="contain"
-              shouldPlay={!paused}
-              isLooping={false}
-              onPlaybackStatusUpdate={(status) => {
-                if (status.didJustFinish) {
-                  goToNextStory();
-                }
-              }}
-            />
-          ) : (
-            <Image
-              source={{ uri: currentStory.media_url }}
-              style={styles.media}
-              resizeMode="contain"
-            />
-          )}
-        </View>
-      </TouchableOpacity>
+      </View>
+    </Modal>
+  );
+};
+
+// Main ProfileScreen component
+const ProfileScreen = () => {
+  const { accounts, addAccount } = useAccounts();
+  const [isSidebarVisible, setSidebarVisible] = useState(false);
+  const [isAccountSwitcherVisible, setAccountSwitcherVisible] = useState(false);
+  const [userProfile, setUserProfile] = useState(null);
+  const [showFullBio, setShowFullBio] = useState(false);
+  const [followersCount, setFollowersCount] = useState(0);
+  const [followingCount, setFollowingCount] = useState(0);
+  // Add new state for followers/following modal
+  const [showFollowersModal, setShowFollowersModal] = useState(false);
+  const [showFollowingModal, setShowFollowingModal] = useState(false);
+  const [followers, setFollowers] = useState([]);
+  const [following, setFollowing] = useState([]);
+  const [loadingConnections, setLoadingConnections] = useState(false);
+  const navigation = useNavigation();
+
+  // Remove the navigation reset from useFocusEffect
+// Remove the duplicate code block (the one that starts with "if (currentUser !== account.id)")
+  // Keep only the implementation inside the AccountSwitcherModal's onPress handler
+
+  // In the ProfileScreen component, remove the entire standalone code block
+  useFocusEffect(
+    React.useCallback(() => {
+      const loadProfile = async () => {
+        try {
+          const { data: { user } } = await supabase.auth.getUser();
+          if (user) {
+            const { data, error } = await supabase
+              .from('profiles')
+              .select('*')
+              .eq('id', user.id)
+              .single();
       
-      {/* Menu Modal */}
+            if (data) {
+              console.log('Raw Profile Data:', data);
+              setUserProfile(data);
+            }
+          }
+        } catch (error) {
+          console.error('Error loading profile:', error);
+        }
+      };
+      
+      loadProfile();
+      fetchFollowersCount();
+      fetchFollowingCount();
+    }, [])
+  );
+
+  // Remove everything between useFocusEffect and loadUserProfile
+  // Delete the entire standalone block that starts with:
+  // if (currentUser !== account.id) {
+  // and ends with:
+  // } catch (error) {
+  // ...
+  // });
+
+  const loadUserProfile = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // First get the old profile data to compare
+      const { data: oldData } = await supabase
+        .from('profiles')
+        .select('avatar_url, cover_url')
+        .eq('id', user.id)
+        .single();
+
+      const { data: newData, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', user.id)
+        .single();
+
+      if (error) {
+        console.error('Error loading user profile:', error);
+        setUserProfile(null);
+      } else {
+        // Remove old files if they're different from new ones
+        if (oldData?.avatar_url && oldData.avatar_url !== newData.avatar_url) {
+          const oldAvatarPath = oldData.avatar_url.includes('/media/') 
+            ? oldData.avatar_url.split('/media/')[1] 
+            : oldData.avatar_url;
+            
+          console.log('Attempting to remove old avatar:', oldAvatarPath);
+          const { error: removeError } = await supabase.storage
+            .from('media')
+            .remove([oldAvatarPath]);
+            
+          if (removeError) {
+            console.log('Error removing old avatar:', removeError.message);
+          } else {
+            console.log('Successfully removed old avatar');
+          }
+        }
+
+        if (oldData?.cover_url && oldData.cover_url !== newData.cover_url) {
+          const oldCoverPath = oldData.cover_url.includes('/media/') 
+            ? oldData.cover_url.split('/media/')[1] 
+            : oldData.cover_url;
+            
+          console.log('Attempting to remove old cover:', oldCoverPath);
+          const { error: removeError } = await supabase.storage
+            .from('media')
+            .remove([oldCoverPath]);
+            
+          if (removeError) {
+            console.log('Error removing old cover:', removeError.message);
+          } else {
+            console.log('Successfully removed old cover');
+          }
+        }
+
+        // Get direct URLs from Supabase storage
+        const avatarUrl = newData.avatar_url ? 
+          supabase.storage.from('media').getPublicUrl(newData.avatar_url).data.publicUrl : 
+          null;
+        
+        const coverUrl = newData.cover_url ? 
+          supabase.storage.from('media').getPublicUrl(newData.cover_url).data.publicUrl : 
+          null;
+
+        setUserProfile({
+          ...newData,
+          avatar_url: avatarUrl,
+          cover_url: coverUrl
+        });
+      }
+    } catch (error) {
+      console.error('Error loading user profile:', error);
+      setUserProfile(null);
+    }
+  };
+
+  const fetchFollowersCount = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { count, error } = await supabase
+        .from('follows')
+        .select('*', { count: 'exact' })
+        .eq('following_id', user.id);
+
+      if (error) {
+        console.error('Error fetching followers count:', error);
+      } else {
+        setFollowersCount(count);
+      }
+    } catch (error) {
+      console.error('Error fetching followers count:', error);
+    }
+  };
+
+  const fetchFollowingCount = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { count, error } = await supabase
+        .from('follows')
+        .select('*', { count: 'exact' })
+        .eq('follower_id', user.id);
+
+      if (error) {
+        console.error('Error fetching following count:', error);
+      } else {
+        setFollowingCount(count);
+      }
+    } catch (error) {
+      console.error('Error fetching following count:', error);
+    }
+  };
+
+  const renderBio = () => {
+    if (!userProfile?.bio) return null;
+    
+    const shouldTruncate = userProfile.bio.length > 50 && !showFullBio;
+    const displayBio = shouldTruncate 
+      ? userProfile.bio.substring(0, 50) + '...' 
+      : userProfile.bio;
+
+    return (
+      <View style={styles.bioContainer}>
+        <Text style={styles.bioText}>
+          {displayBio}
+          {shouldTruncate && (
+            <Text 
+              style={styles.moreText}
+              onPress={() => setShowFullBio(true)}
+            > more</Text>
+          )}
+        </Text>
+      </View>
+    );
+  };
+
+  // Add new functions to fetch followers and following details
+  const fetchFollowers = async () => {
+    try {
+      setLoadingConnections(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Get all followers
+      const { data, error } = await supabase
+        .from('follows')
+        .select(`
+          follower_id,
+          profiles!follows_follower_id_fkey (
+            id,
+            username,
+            full_name,
+            avatar_url
+          )
+        `)
+        .eq('following_id', user.id);
+
+      if (error) {
+        console.error('Error fetching followers:', error);
+        return;
+      }
+
+      // Process the data to get clean user objects
+      const followersList = data.map(item => {
+        const profile = item.profiles;
+        // Fix avatar URL if needed
+        let avatarUrl = null;
+        if (profile.avatar_url) {
+          let avatarPath = profile.avatar_url;
+          if (avatarPath.includes('media/media/') || avatarPath.includes('storage/v1/object/public/media/')) {
+            const match = avatarPath.match(/([a-f0-9-]+\/avatar_[0-9]+\.jpg)/);
+            if (match && match[1]) {
+              avatarPath = match[1];
+            } else {
+              avatarPath = avatarPath.split('media/').pop();
+            }
+          }
+          avatarUrl = `https://lckhaysswueoyinhfzyz.supabase.co/storage/v1/object/public/media/${avatarPath}`;
+        }
+        
+        return {
+          ...profile,
+          avatar_url: avatarUrl
+        };
+      });
+
+      setFollowers(followersList);
+      setShowFollowersModal(true);
+    } catch (error) {
+      console.error('Error fetching followers:', error);
+    } finally {
+      setLoadingConnections(false);
+    }
+  };
+
+  const fetchFollowing = async () => {
+    try {
+      setLoadingConnections(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      // Get all following
+      const { data, error } = await supabase
+        .from('follows')
+        .select(`
+          following_id,
+          profiles!follows_following_id_fkey (
+            id,
+            username,
+            full_name,
+            avatar_url
+          )
+        `)
+        .eq('follower_id', user.id);
+
+      if (error) {
+        console.error('Error fetching following:', error);
+        return;
+      }
+
+      // Process the data to get clean user objects
+      const followingList = data.map(item => {
+        const profile = item.profiles;
+        // Fix avatar URL if needed
+        let avatarUrl = null;
+        if (profile.avatar_url) {
+          let avatarPath = profile.avatar_url;
+          if (avatarPath.includes('media/media/') || avatarPath.includes('storage/v1/object/public/media/')) {
+            const match = avatarPath.match(/([a-f0-9-]+\/avatar_[0-9]+\.jpg)/);
+            if (match && match[1]) {
+              avatarPath = match[1];
+            } else {
+              avatarPath = avatarPath.split('media/').pop();
+            }
+          }
+          avatarUrl = `https://lckhaysswueoyinhfzyz.supabase.co/storage/v1/object/public/media/${avatarPath}`;
+        }
+        
+        return {
+          ...profile,
+          avatar_url: avatarUrl
+        };
+      });
+
+      setFollowing(followingList);
+      setShowFollowingModal(true);
+    } catch (error) {
+      console.error('Error fetching following:', error);
+    } finally {
+      setLoadingConnections(false);
+    }
+  };
+
+  // Add ConnectionsModal component
+  const ConnectionsModal = ({ visible, onClose, title, connections, isLoading }) => {
+    return (
       <Modal
-        visible={menuVisible}
+        visible={visible}
         transparent={true}
-        animationType="fade"
-        onRequestClose={() => {
-          setMenuVisible(false);
-          setPaused(false);
-        }}
+        animationType="slide"
+        onRequestClose={onClose}
       >
-        <TouchableOpacity 
-          style={styles.modalOverlay}
-          activeOpacity={1}
-          onPress={() => {
-            setMenuVisible(false);
-            setPaused(false);
-          }}
-        >
-          <View style={styles.menuContainer}>
-            <TouchableOpacity style={styles.menuItem} onPress={handleDeleteStory}>
-              <Ionicons name="trash-outline" size={24} color="#ff3b30" />
-              <Text style={[styles.menuItemText, { color: '#ff3b30' }]}>Delete Story</Text>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>{title}</Text>
+            
+            {isLoading ? (
+              <View style={styles.loadingContainer}>
+                <ActivityIndicator size="large" color="#ff00ff" />
+              </View>
+            ) : connections.length > 0 ? (
+              <ScrollView style={styles.connectionsList}>
+                {connections.map((connection, index) => (
+                  <TouchableOpacity 
+                    key={index}
+                    style={styles.connectionItem}
+                    onPress={() => {
+                      onClose();
+                      navigation.navigate('UserProfile', { userId: connection.id });
+                    }}
+                  >
+                    <Image 
+                      source={{ uri: connection.avatar_url || 'https://via.placeholder.com/150' }}
+                      style={styles.connectionAvatar}
+                    />
+                    <View style={styles.connectionInfo}>
+                      <Text style={styles.connectionName}>{connection.full_name || 'No name'}</Text>
+                      <Text style={styles.connectionUsername}>@{connection.username || 'username'}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            ) : (
+              <View style={styles.emptyContainer}>
+                <Ionicons name="people-outline" size={50} color="#666" />
+                <Text style={styles.emptyText}>No {title.toLowerCase()} yet</Text>
+              </View>
+            )}
+
+            <TouchableOpacity 
+              style={styles.closeButton}
+              onPress={onClose}
+            >
+              <Text style={styles.closeText}>Close</Text>
             </TouchableOpacity>
           </View>
-        </TouchableOpacity>
+        </View>
       </Modal>
+    );
+  };
+
+  return (
+    <View style={styles.container}>
+      <Sidebar 
+        isVisible={isSidebarVisible} 
+        onClose={() => setSidebarVisible(false)}
+      />
+      
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => setSidebarVisible(true)}>
+          <Ionicons name="menu" size={24} color="#ff00ff" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setAccountSwitcherVisible(true)}>
+          <Ionicons name="add-circle-outline" size={24} color="#ff00ff" />
+        </TouchableOpacity>
+      </View>
+
+      <AccountSwitcherModal 
+        visible={isAccountSwitcherVisible}
+        onClose={() => setAccountSwitcherVisible(false)}
+        loadUserProfile={loadUserProfile}
+      />
+      
+      {/* Add the new modals */}
+      <ConnectionsModal
+        visible={showFollowersModal}
+        onClose={() => setShowFollowersModal(false)}
+        title="Followers"
+        connections={followers}
+        isLoading={loadingConnections}
+      />
+      
+      <ConnectionsModal
+        visible={showFollowingModal}
+        onClose={() => setShowFollowingModal(false)}
+        title="Following"
+        connections={following}
+        isLoading={loadingConnections}
+      />
+      
+      <ScrollView>
+        <View style={styles.profileSection}>
+          {/* Cover Photo */}
+          <View style={styles.coverPhotoContainer}>
+            <Image
+              style={styles.coverPhoto}
+              source={userProfile?.cover_url 
+                ? { 
+                    uri: userProfile.cover_url,
+                    cache: 'reload'
+                  } 
+                : require('../../assets/default-cover.png')
+              }
+              onLoadStart={() => console.log('Cover photo loading started')}
+              onLoadEnd={() => console.log('Cover photo loading ended')}
+              onError={(e) => console.log('Cover photo error:', e.nativeEvent.error)}
+            />
+          </View>
+          
+          <Image
+            style={styles.profileImage}
+            source={userProfile?.avatar_url 
+              ? { 
+                  uri: userProfile.avatar_url,
+                  cache: 'reload'
+                } 
+              : require('../../assets/default-avatar.png')
+            }
+            onLoadStart={() => console.log('Avatar loading started')}
+            onLoadEnd={() => console.log('Avatar loading ended')}
+            onError={(e) => console.log('Avatar error:', e.nativeEvent.error)}
+          />
+          
+          <Text style={styles.name}>{userProfile?.full_name || 'No name set'}</Text>
+          <Text style={styles.username}>@{userProfile?.username || 'username'}</Text>
+          <View style={styles.rankBadge}>
+            <Ionicons name="trophy-outline" size={16} color="#FFD700" />
+            <Text style={styles.rankNumber}>
+              {userProfile?.rank 
+                ? `Rank #${userProfile.rank} ${userProfile.rank === 1 ? '(First Member!)' : ''}`
+                : 'Rank not assigned'}
+            </Text>
+          </View>
+          {renderBio()}
+          
+          <TouchableOpacity 
+            style={styles.editButton}
+            onPress={() => navigation.navigate('EditProfile')}
+          >
+            <Text style={styles.editButtonText}>EDIT PROFILE</Text>
+          </TouchableOpacity>
+
+          <View style={styles.statsContainer}>
+            <View style={styles.stat}>
+              <Text style={styles.statNumber}>100</Text>
+              <Text style={styles.statLabel}>Post</Text>
+            </View>
+            <View style={styles.stat}>
+              <Text style={styles.statNumber}>20</Text>
+              <Text style={styles.statLabel}>Shorts</Text>
+            </View>
+            <View style={styles.stat}>
+              <Text style={styles.statNumber}>{followersCount}</Text>
+              <Text style={styles.statLabel}>Followers</Text>
+            </View>
+            <View style={styles.stat}>
+              <Text style={styles.statNumber}>{followingCount}</Text>
+              <Text style={styles.statLabel}>Following</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* Rest of the profile content */}
+        <View style={styles.tabsContainer}>
+          <TouchableOpacity style={styles.tabButton}>
+            <Text style={styles.tabButtonText}>Post</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.tabButton}>
+            <Text style={styles.tabButtonText}>Shorts</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.tabButton, styles.activeTab]}>
+            <Text style={[styles.tabButtonText, styles.activeTabText]}>Details</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.detailsSection}>
+          <View style={styles.detailItem}>
+            <Ionicons name="person-outline" size={24} color="#666" />
+            <View style={styles.detailContent}>
+              <Text style={styles.detailTitle}>About me</Text>
+              <Text style={styles.detailText}>
+                {userProfile?.bio || 'No bio added yet'}
+              </Text>
+            </View>
+          </View>
+
+          <View style={styles.detailItem}>
+            <Ionicons name="briefcase-outline" size={24} color="#e3a6be" />
+            <View style={styles.detailContent}>
+              <Text style={styles.detailTitle}>Work Experience</Text>
+              <Text style={styles.detailText}>Google UX/UI Designer</Text>
+            </View>
+          </View>
+
+          <View style={styles.detailItem}>
+            <Ionicons name="trophy-outline" size={24} color="#FFD700" />
+            <View style={styles.detailContent}>
+              <Text style={styles.detailTitle}>Member Rank</Text>
+              <Text style={styles.detailText}>
+                {userProfile?.rank 
+                  ? `You are member #${userProfile.rank} on Flexx`
+                  : 'Rank not assigned yet'}
+              </Text>
+            </View>
+          </View>
+        </View>
+      </ScrollView>
     </View>
   );
 };
 
+// Add these styles to your StyleSheet
 const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#000',
   },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#000',
-  },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingHorizontal: 15,
-    paddingTop: Platform.OS === 'ios' ? 50 : 40, // Extra padding for iOS notch
-    paddingBottom: 10,
+    padding: 18,
+    paddingTop: 50,
   },
-  userInfo: {
-    flexDirection: 'row',
+  profileSection: {
     alignItems: 'center',
+    padding: 20,
+    paddingTop: 0, // Remove top padding to accommodate cover photo
   },
-  avatar: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    marginRight: 10,
+  profileImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 3,
+    borderColor: '#e3a6be',
+  },
+  name: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: 'white',
+    marginTop: 10,
   },
   username: {
-    color: '#fff',
     fontSize: 16,
-    fontWeight: 'bold',
+    color: '#faf7f8',
+    marginTop: 5,
   },
-  menuButton: {
-    padding: 5,
+  bio: {
+    fontSize: 14,
+    color: '#faf7f8',
+    marginTop: 5,
   },
-  progressContainer: {
+  editButton: {
+    backgroundColor: 'pink',
+    paddingHorizontal: 30,
+    paddingVertical: 8,
+    borderRadius: 20,
+    marginTop: 15,
+  },
+  editButtonText: {
+    color: 'white',
+    fontWeight: '600',
+  },
+  statsContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 10,
-    paddingTop: 10,
-    gap: 5,
-  },
-  progressBar: {
-    flex: 1,
-    height: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    borderRadius: 1,
-    overflow: 'hidden',
-  },
-  progress: {
-    height: '100%',
-    borderRadius: 1,
-  },
-  content: {
-    flex: 1,
-    justifyContent: 'center',
-  },
-  media: {
+    justifyContent: 'space-around',
     width: '100%',
-    height: '100%',
+    marginTop: 20,
+    paddingVertical: 15,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#1a1a1a',
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+  stat: {
+    alignItems: 'center',
   },
-  menuContainer: {
-    backgroundColor: '#1a1a1a',
-    borderTopLeftRadius: 15,
-    borderTopRightRadius: 15,
+  statNumber: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: 'white',
+  },
+  statLabel: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 5,
+  },
+  tabsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'space-around', // Changed from paddingHorizontal
+    paddingHorizontal: 40, // Added padding to keep tabs from edges
+    marginTop: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1a1a1a',
+  },
+  tabButton: {
+    marginRight: 30,
+    paddingBottom: 10,
+    flex: 1,  // Added to make buttons take equal space
+    alignItems: 'center',
+    
+  },
+  tabButtonText: {
+    color: '#faf7f8',
+    fontSize: 16,
+  },
+  activeTab: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#faf7f8',
+  },
+  activeTabText: {
+    color: '#1DA1F2',
+  },
+  detailsSection: {
     padding: 20,
   },
-  menuItem: {
+  detailItem: {
     flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 15,
+    alignItems: 'flex-start',
+    marginBottom: 20,
   },
-  menuText: {
-    fontSize: 16,
+  detailContent: {
     marginLeft: 15,
-    color: '#fff',
-  },
-  container: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  loadingContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    backgroundColor: '#000',
-  },
-  storyContainer: {
     flex: 1,
   },
-  progressContainer: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    paddingHorizontal: 8,
-    paddingTop: 50, // Extra padding to avoid notch
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 10,
+  detailTitle: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '600',
+    marginBottom: 5,
   },
-  progressBarBackground: {
-    flex: 1,
-    height: 3,
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
-    marginHorizontal: 2,
-    borderRadius: 3,
-    overflow: 'hidden',
-  },
-  progressBar: {
-    height: '100%',
-    backgroundColor: '#fff',
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 16,
-    paddingTop: 60, // Extra padding to avoid notch
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    zIndex: 5,
-  },
-  userInfo: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  avatar: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    marginRight: 8,
-  },
-  username: {
-    color: '#fff',
-    fontWeight: 'bold',
+  detailText: {
+    color: '#faf7f8',
     fontSize: 14,
-    marginRight: 8,
   },
-  timestamp: {
-    color: 'rgba(255, 255, 255, 0.7)',
-    fontSize: 12,
+  
+  bottomNav: null,
+  navItem: null,
+  navProfilePic: null,
+  coverPhotoContainer: {
+    width: '100%',
+    height: 200,
+    marginBottom: -50,
+    borderRadius: 15,
+    overflow: 'hidden',
+    backgroundColor: '#1a1a1a', // Add background color
   },
-  menuButton: {
-    padding: 8,
-  },
-  mediaContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  media: {
+  coverPhoto: {
     width: '100%',
     height: '100%',
+    resizeMode: 'cover',
+    backgroundColor: '#1a1a1a', // Add this line
   },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+  profileImage: {
+    width: 100,
+    height: 100,
+    borderRadius: 50,
+    borderWidth: 3,
+    borderColor: '#e3a6be',
+    backgroundColor: '#1a1a1a', // Add background color
+    marginTop: 10, // Add margin to separate from cover photo
   },
-  menuContainer: {
-    backgroundColor: '#1a1a1a',
-    borderTopLeftRadius: 15,
-    borderTopRightRadius: 15,
-    paddingVertical: 20,
+  bioContainer: {
+    marginTop: 10,
+    paddingHorizontal: 20,
+    width: '100%',
   },
-  menuItem: {
+  bioText: {
+    color: '#faf7f8',
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  moreText: {
+    color: '#ff00ff',
+    fontWeight: '600',
+  },
+  rankBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingVertical: 12,
-    paddingHorizontal: 20,
+    backgroundColor: 'rgba(255, 215, 0, 0.1)',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 15,
+    marginTop: 5,
   },
-  menuItemText: {
+  rankNumber: {
+    color: '#FFD700',
+    fontSize: 14,
+    fontWeight: 'bold',
+    marginLeft: 5,
+  },
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.8)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#1a1a1a',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    paddingTop: 30,
+    minHeight: '40%',
+  },
+  modalTitle: {
+    color: '#ff00ff',
+    fontSize: 24,
+    fontWeight: 'bold',
+    marginBottom: 25,
+    textAlign: 'center',
+  },
+  accountItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+    marginVertical: 5,
+  },
+  accountAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 15,
+    borderWidth: 2,
+    borderColor: '#ff00ff',
+  },
+  accountUsername: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: '500',
+  },
+  addAccountButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    marginTop: 20,
+    backgroundColor: '#330033',
+    borderRadius: 10,
+  },
+  addAccountText: {
+    color: '#ff00ff',
+    fontSize: 18,
+    marginLeft: 15,
+    fontWeight: '500',
+  },
+  closeButton: {
+    alignItems: 'center',
+    padding: 15,
+    marginTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: '#333',
+  },
+  closeText: {
+    color: '#999',
     fontSize: 16,
-    marginLeft: 12,
-    color: '#fff',
+    fontWeight: '500',
   },
-});
+  // Add to your existing styles
+  currentAccountItem: {
+    backgroundColor: 'rgba(255, 0, 255, 0.1)',
+    borderWidth: 1,
+    borderColor: '#ff00ff',
+    borderRadius: 10,
+  },
+  currentAccountBadge: {
+    marginLeft: 'auto',
+  },
 
-export default StoriesScreen;
+
+connectionsList: {
+  maxHeight: 400,
+},
+connectionItem: {
+  flexDirection: 'row',
+  alignItems: 'center',
+  padding: 15,
+  borderBottomWidth: 1,
+  borderBottomColor: '#333',
+},
+connectionAvatar: {
+  width: 50,
+  height: 50,
+  borderRadius: 25,
+  marginRight: 15,
+  borderWidth: 1,
+  borderColor: '#ff00ff',
+},
+connectionInfo: {
+  flex: 1,
+},
+connectionName: {
+  color: 'white',
+  fontSize: 16,
+  fontWeight: '500',
+},
+connectionUsername: {
+  color: '#999',
+  fontSize: 14,
+},
+emptyContainer: {
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: 40,
+},
+emptyText: {
+  color: '#666',
+  fontSize: 16,
+  marginTop: 10,
+},
+loadingContainer: {
+  padding: 40,
+  alignItems: 'center',
+}
+});
+export default ProfileScreen;

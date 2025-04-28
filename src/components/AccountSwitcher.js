@@ -4,6 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../config/supabase';
 import { useNavigation } from '@react-navigation/native';
+import { Alert } from 'react-native';
 
 const AccountSwitcher = ({ isVisible, onClose }) => {
   const [accounts, setAccounts] = useState([]);
@@ -15,6 +16,26 @@ const AccountSwitcher = ({ isVisible, onClose }) => {
       loadAccounts();
     }
   }, [isVisible]);
+
+  // Function to clear current user's account data
+  const clearCurrentUserData = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        const savedAccounts = await AsyncStorage.getItem('savedAccounts');
+        if (savedAccounts) {
+          const parsedAccounts = JSON.parse(savedAccounts);
+          const updatedAccounts = parsedAccounts.filter(
+            account => account.email !== user.email
+          );
+          await AsyncStorage.setItem('savedAccounts', JSON.stringify(updatedAccounts));
+          setAccounts(updatedAccounts);
+        }
+      }
+    } catch (error) {
+      console.error('Error clearing user data:', error);
+    }
+  };
 
   const loadAccounts = async () => {
     try {
@@ -41,7 +62,22 @@ const AccountSwitcher = ({ isVisible, onClose }) => {
 
   const switchAccount = async (account) => {
     try {
+      // Get current user before signing out
+      const { data: { user } } = await supabase.auth.getUser();
+      
+      // Sign out current user
       await supabase.auth.signOut();
+      
+      // Remove current account from saved accounts
+      const savedAccounts = await AsyncStorage.getItem('savedAccounts');
+      if (savedAccounts) {
+        const parsedAccounts = JSON.parse(savedAccounts);
+        const updatedAccounts = parsedAccounts.filter(
+          acc => acc.email !== user.email
+        );
+        await AsyncStorage.setItem('savedAccounts', JSON.stringify(updatedAccounts));
+      }
+      
       onClose();
       // Navigate to login with the selected account's email
       navigation.replace('Login', { 
@@ -50,6 +86,27 @@ const AccountSwitcher = ({ isVisible, onClose }) => {
       });
     } catch (error) {
       Alert.alert('Error', 'Failed to switch account');
+    }
+  };
+
+  const removeAccount = async (accountToRemove) => {
+    try {
+      // Get saved accounts
+      const savedAccounts = await AsyncStorage.getItem('savedAccounts');
+      if (savedAccounts) {
+        const parsedAccounts = JSON.parse(savedAccounts);
+        // Filter out the account to remove
+        const updatedAccounts = parsedAccounts.filter(
+          account => account.email !== accountToRemove.email
+        );
+        // Save updated accounts list
+        await AsyncStorage.setItem('savedAccounts', JSON.stringify(updatedAccounts));
+        // Refresh the accounts list
+        loadAccounts();
+      }
+    } catch (error) {
+      console.error('Error removing account:', error);
+      Alert.alert('Error', 'Failed to remove account');
     }
   };
 
@@ -73,13 +130,34 @@ const AccountSwitcher = ({ isVisible, onClose }) => {
             data={accounts}
             keyExtractor={(item) => item.userId}
             renderItem={({ item }) => (
-              <TouchableOpacity 
-                style={styles.accountItem}
-                onPress={() => switchAccount(item)}
-              >
-                <Ionicons name="person-circle-outline" size={40} color="#ff00ff" />
-                <Text style={styles.accountEmail}>{item.email}</Text>
-              </TouchableOpacity>
+              <View style={styles.accountItemContainer}>
+                <TouchableOpacity 
+                  style={styles.accountItem}
+                  onPress={() => switchAccount(item)}
+                >
+                  <Ionicons name="person-circle-outline" size={40} color="#ff00ff" />
+                  <Text style={styles.accountEmail}>{item.email}</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.removeButton}
+                  onPress={() => {
+                    Alert.alert(
+                      'Remove Account',
+                      'Are you sure you want to remove this account? You will need to log in again to use it.',
+                      [
+                        { text: 'Cancel', style: 'cancel' },
+                        { 
+                          text: 'Remove', 
+                          style: 'destructive',
+                          onPress: () => removeAccount(item)
+                        }
+                      ]
+                    );
+                  }}
+                >
+                  <Ionicons name="close-circle" size={24} color="#ff3b30" />
+                </TouchableOpacity>
+              </View>
             )}
           />
 

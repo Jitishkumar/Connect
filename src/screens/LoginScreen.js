@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { View, TextInput, TouchableOpacity, Text, StyleSheet, Alert } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Ionicons } from '@expo/vector-icons';
 import { supabase } from '../config/supabase';
 
 const LoginScreen = ({ navigation }) => {
@@ -42,7 +44,13 @@ const LoginScreen = ({ navigation }) => {
   };
 
   return (
-    <View style={styles.container}>
+    <LinearGradient
+      colors={['#0a0a2a', '#1a1a3a']}
+      start={{x: 0, y: 0}}
+      end={{x: 1, y: 1}}
+      style={styles.container}
+    >
+      <Text style={styles.logo}>Flexx</Text>
       <TextInput
         style={styles.input}
         placeholder="Email or Username"
@@ -77,7 +85,7 @@ const LoginScreen = ({ navigation }) => {
           Don't have an account? Sign up
         </Text>
       </TouchableOpacity>
-    </View>
+    </LinearGradient>
   );
 };
 
@@ -85,22 +93,38 @@ const LoginScreen = ({ navigation }) => {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#000',
     padding: 20,
     justifyContent: 'center',
   },
+  logo: {
+    fontSize: 40,
+    fontWeight: 'bold',
+    color: '#ff00ff',
+    textAlign: 'center',
+    marginBottom: 40,
+    textShadowColor: 'rgba(255, 0, 255, 0.5)',
+    textShadowOffset: { width: 0, height: 1 },
+    textShadowRadius: 8,
+  },
   input: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 10,
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderRadius: 20,
     padding: 15,
     marginBottom: 15,
     color: 'white',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 0, 255, 0.3)',
   },
   button: {
     backgroundColor: '#ff00ff',
     padding: 15,
-    borderRadius: 10,
+    borderRadius: 20,
     alignItems: 'center',
+    shadowColor: '#ff00ff',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
   },
   buttonText: {
     color: 'white',
