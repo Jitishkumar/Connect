@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,12 +7,14 @@ import {
   Image,
   Dimensions,
   ActivityIndicator,
-  Modal
+  Modal,
+  PanResponder
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
+import { useVideo } from '../context/VideoContext';
 
 const { width } = Dimensions.get('window');
 
@@ -25,7 +27,15 @@ const PostItem = ({ post, onLike, onComment, onOptionsPress }) => {
   const [fullscreen, setFullscreen] = useState(false);
   const [lastTap, setLastTap] = useState(null);
   const [progress, setProgress] = useState(0);
+  const [duration, setDuration] = useState(0);
+  const [currentTime, setCurrentTime] = useState(0);
+  const [seeking, setSeeking] = useState(false);
+  const [showControls, setShowControls] = useState(false);
   const videoRef = useRef(null);
+  const controlsTimeout = useRef(null);
+  
+  // Get video context
+  const { activeVideoId, setActiveVideo, clearActiveVideo, isFullscreenMode, setFullscreen: setContextFullscreen } = useVideo();
 
   const handleProfilePress = () => {
     navigation.navigate('UserProfile', { userId: post.user_id });
@@ -34,24 +44,120 @@ const PostItem = ({ post, onLike, onComment, onOptionsPress }) => {
   const handleVideoPress = () => {
     const now = Date.now();
     if (lastTap && (now - lastTap) < 300) {
+      // Double tap - go to fullscreen
+      // Pause the feed video first to prevent double audio
+      if (videoRef.current) {
+        videoRef.current.pauseAsync();
+      }
       setPlaying(false);
       setFullscreen(true);
+      setContextFullscreen(true);
+      
+      // Set a small timeout to ensure the feed video is fully paused before starting fullscreen
+      setTimeout(() => {
+        setPlaying(true);
+      }, 300);
     } else {
-      setPlaying(!playing);
+      // Single tap - toggle play/pause and show controls
+      const newPlayingState = !playing;
+      setPlaying(newPlayingState);
+      showVideoControls();
+      
+      if (newPlayingState) {
+        // If we're starting to play this video, set it as the active video
+        setActiveVideo(post.id);
+      } else if (activeVideoId === post.id) {
+        // If we're pausing the active video, clear the active video
+        clearActiveVideo();
+      }
     }
     setLastTap(now);
   };
 
   const handleFullscreenClose = () => {
-    setFullscreen(false);
+    // First stop playback in fullscreen
     setPlaying(false);
+    
+    // Wait a moment to ensure video playback is stopped before closing modal
+    setTimeout(() => {
+      setFullscreen(false);
+      setContextFullscreen(false);
+      clearActiveVideo();
+    }, 100);
   };
 
   const onPlaybackStatusUpdate = (status) => {
     if (status.isLoaded) {
       setProgress(status.positionMillis / status.durationMillis);
+      setCurrentTime(status.positionMillis);
+      setDuration(status.durationMillis);
     }
   };
+  
+  // Format time in mm:ss format
+  const formatTime = (timeMillis) => {
+    const totalSeconds = Math.floor(timeMillis / 1000);
+    const minutes = Math.floor(totalSeconds / 60);
+    const seconds = totalSeconds % 60;
+    return `${minutes}:${seconds < 10 ? '0' : ''}${seconds}`;
+  };
+  
+  // Handle seeking
+  const handleSeek = (value) => {
+    if (videoRef.current && duration > 0) {
+      const newPosition = value * duration;
+      videoRef.current.setPositionAsync(newPosition);
+      setCurrentTime(newPosition);
+      setProgress(value);
+    }
+  };
+  
+  // Show controls when video is tapped
+  const showVideoControls = () => {
+    setShowControls(true);
+    
+    // Clear existing timeout
+    if (controlsTimeout.current) {
+      clearTimeout(controlsTimeout.current);
+    }
+    
+    // Hide controls after 3 seconds
+    controlsTimeout.current = setTimeout(() => {
+      setShowControls(false);
+    }, 3000);
+  };
+  
+  // Effect to handle when another video becomes active
+  useEffect(() => {
+    if (activeVideoId && activeVideoId !== post.id && playing) {
+      // If another video is now active and this one is playing, pause this one
+      setPlaying(false);
+      if (videoRef.current) {
+        videoRef.current.pauseAsync();
+      }
+    }
+  }, [activeVideoId, post.id, playing]);
+  
+  // Effect to handle fullscreen mode changes
+  useEffect(() => {
+    if (isFullscreenMode && !fullscreen && playing) {
+      // If we're in fullscreen mode but this video isn't the fullscreen one and it's playing, pause it
+      setPlaying(false);
+      if (videoRef.current) {
+        videoRef.current.pauseAsync();
+      }
+    }
+  }, [isFullscreenMode, fullscreen, playing]);
+  
+  // Effect to ensure only one video instance is playing at a time
+  useEffect(() => {
+    // When component unmounts or when fullscreen state changes, ensure video is paused
+    return () => {
+      if (videoRef.current) {
+        videoRef.current.pauseAsync();
+      }
+    };
+  }, [fullscreen]);
 
   return (
     <>
@@ -103,16 +209,19 @@ const PostItem = ({ post, onLike, onComment, onOptionsPress }) => {
                   )}
 
                   <Video
+                    ref={videoRef}
                     source={{ uri: post.media_url }}
                     style={styles.media}
                     resizeMode="cover"
-                    shouldPlay={playing}
+                    shouldPlay={playing && !fullscreen} // Only play if not in fullscreen mode
                     isLooping
                     onLoadStart={() => setLoading(true)}
                     onLoad={() => setLoading(false)}
                     onPlaybackStatusUpdate={(status) => {
                       if (status.isLoaded) {
                         setProgress(status.positionMillis / status.durationMillis);
+                        setCurrentTime(status.positionMillis);
+                        setDuration(status.durationMillis);
                       }
                     }}
                     onError={() => {
@@ -121,18 +230,59 @@ const PostItem = ({ post, onLike, onComment, onOptionsPress }) => {
                     }}
                   />
 
-                  <LinearGradient
-                    colors={['transparent', 'rgba(0,0,0,0.7)']}
-                    style={styles.videoControls}
-                  >
-                    <View style={styles.progressContainer}>
-                      <View style={[styles.progressBar, { width: `${progress * 100}%` }]} />
-                    </View>
+                  {(showControls || !playing) && (
+                    <LinearGradient
+                      colors={['transparent', 'rgba(0,0,0,0.7)']}
+                      style={styles.videoControls}
+                    >
+                      <View style={styles.timeContainer}>
+                        <Text style={styles.timeText}>{formatTime(currentTime)}</Text>
+                        <Text style={styles.timeText}>{formatTime(duration)}</Text>
+                      </View>
+                      
+                      <View style={styles.seekbarContainer}>
+                        <View style={styles.progressBackground} />
+                        <View style={[styles.progressBar, { width: `${progress * 100}%` }]} />
+                        <View style={styles.seekbarTouchable}>
+                          <TouchableOpacity 
+                            style={[styles.seekKnob, { left: `${progress * 100}%` }]}
+                            onPressIn={() => setSeeking(true)}
+                            onPressOut={() => setSeeking(false)}
+                          />
+                          <View 
+                            style={styles.seekbarTouchArea}
+                            onTouchStart={(event) => {
+                              const { locationX } = event.nativeEvent;
+                              const seekPosition = locationX / event.currentTarget.offsetWidth;
+                              handleSeek(Math.max(0, Math.min(1, seekPosition)));
+                            }}
+                          />
+                        </View>
+                      </View>
 
-                    <TouchableOpacity style={styles.playPauseButton} onPress={() => setPlaying(!playing)}>
-                      <Ionicons name={playing ? "pause" : "play"} size={24} color="#fff" />
-                    </TouchableOpacity>
-                  </LinearGradient>
+                      <View style={styles.controlsRow}>
+                        <TouchableOpacity style={styles.controlButton} onPress={() => handleSeek(0)}>
+                          <Ionicons name="play-skip-back" size={22} color="#fff" />
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity 
+                          style={styles.playPauseButton} 
+                          onPress={() => setPlaying(!playing)}
+                        >
+                          <LinearGradient
+                            colors={['#ff00ff', '#9900ff']}
+                            style={styles.playButtonGradient}
+                          >
+                            <Ionicons name={playing ? "pause" : "play"} size={24} color="#fff" />
+                          </LinearGradient>
+                        </TouchableOpacity>
+                        
+                        <TouchableOpacity style={styles.controlButton}>
+                          <Ionicons name="play-skip-forward" size={22} color="#fff" />
+                        </TouchableOpacity>
+                      </View>
+                    </LinearGradient>
+                  )}
 
                   {!playing && !loading && (
                     <LinearGradient colors={['rgba(0,0,0,0.3)', 'rgba(0,0,0,0.6)']} style={styles.videoOverlay}>
@@ -205,43 +355,99 @@ const PostItem = ({ post, onLike, onComment, onOptionsPress }) => {
           animationType="fade"
           onRequestClose={handleFullscreenClose}
         >
-          <View style={styles.fullscreenContainer}>
-            <View style={styles.topProgressContainer}>
-              <View style={[styles.progressBar, { width: `${progress * 100}%` }]} />
-            </View>
-
+          <LinearGradient
+            colors={['#1a1a3a', '#0d0d2a']}
+            style={styles.fullscreenContainer}
+          >
             <Video
               ref={videoRef}
               source={{ uri: post.media_url }}
               style={styles.fullscreenVideo}
               resizeMode="contain"
-              shouldPlay={playing}
+              shouldPlay={playing && fullscreen} // Only play if in fullscreen mode
               isLooping
               onPlaybackStatusUpdate={onPlaybackStatusUpdate}
             />
 
-            <LinearGradient colors={['transparent', 'rgba(0,0,0,0.7)']} style={styles.fullscreenControls}>
-              <View style={styles.videoControlsRow}>
-                <TouchableOpacity style={styles.controlButton} onPress={() => videoRef.current && videoRef.current.setPositionAsync(0)}>
+            {/* Top gradient with close button */}
+            <LinearGradient 
+              colors={['rgba(0,0,0,0.7)', 'transparent']} 
+              style={styles.fullscreenTopControls}
+            >
+              <TouchableOpacity style={styles.closeButton} onPress={handleFullscreenClose}>
+                <Ionicons name="close" size={28} color="#fff" />
+              </TouchableOpacity>
+            </LinearGradient>
+
+            {/* Bottom gradient with controls */}
+            <LinearGradient 
+              colors={['transparent', 'rgba(0,0,0,0.8)']} 
+              style={styles.fullscreenBottomControls}
+            >
+              {/* Time and seekbar */}
+              <View style={styles.fullscreenTimeContainer}>
+                <Text style={styles.timeText}>{formatTime(currentTime)}</Text>
+                <Text style={styles.timeText}>{formatTime(duration)}</Text>
+              </View>
+              
+              <View style={styles.fullscreenSeekbarContainer}>
+                <View style={styles.fullscreenProgressBackground} />
+                <View 
+                  style={[styles.fullscreenProgressBar, { width: `${progress * 100}%` }]} 
+                />
+                <View style={styles.fullscreenSeekbarTouchable}>
+                  <TouchableOpacity 
+                    style={[styles.fullscreenSeekKnob, { left: `${progress * 100}%` }]}
+                    onPressIn={() => setSeeking(true)}
+                    onPressOut={() => setSeeking(false)}
+                  />
+                  <View 
+                    style={styles.fullscreenSeekbarTouchArea}
+                    onTouchStart={(event) => {
+                      const { locationX } = event.nativeEvent;
+                      const seekPosition = locationX / width;
+                      handleSeek(Math.max(0, Math.min(1, seekPosition)));
+                    }}
+                  />
+                </View>
+              </View>
+
+              {/* Playback controls */}
+              <View style={styles.fullscreenControlsRow}>
+                <TouchableOpacity 
+                  style={styles.fullscreenControlButton} 
+                  onPress={() => videoRef.current && videoRef.current.setPositionAsync(0)}
+                >
                   <Ionicons name="play-skip-back" size={28} color="#fff" />
                 </TouchableOpacity>
 
-                <TouchableOpacity style={[styles.controlButton, styles.playPauseButton]} onPress={() => setPlaying(!playing)}>
-                  <LinearGradient colors={['#ff00ff', '#9900ff']} style={styles.playButtonGradient}>
+                <TouchableOpacity 
+                  style={styles.fullscreenPlayPauseButton} 
+                  onPress={() => setPlaying(!playing)}
+                >
+                  <LinearGradient 
+                    colors={['#ff00ff', '#9900ff']} 
+                    style={styles.fullscreenPlayButtonGradient}
+                  >
                     <Ionicons name={playing ? "pause" : "play"} size={32} color="#fff" />
                   </LinearGradient>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.controlButton} onPress={() => videoRef.current && videoRef.current.setPositionAsync(0)}>
+                <TouchableOpacity 
+                  style={styles.fullscreenControlButton} 
+                  onPress={() => {
+                    if (videoRef.current && duration > 0) {
+                      // Skip forward 10 seconds
+                      const newPosition = Math.min(currentTime + 10000, duration);
+                      videoRef.current.setPositionAsync(newPosition);
+                    }
+                  }}
+                >
                   <Ionicons name="play-skip-forward" size={28} color="#fff" />
                 </TouchableOpacity>
               </View>
             </LinearGradient>
-
-            <TouchableOpacity style={styles.closeButton} onPress={handleFullscreenClose}>
-              <Ionicons name="close" size={28} color="#fff" />
-            </TouchableOpacity>
-          </View>
+          </LinearGradient>
         </Modal>
       )}
     </>
@@ -270,23 +476,144 @@ const styles = StyleSheet.create({
   actionText: { marginTop: 2, color: '#e0e0ff', fontSize: 12 },
   likedIconBackground: { borderRadius: 20, padding: 5 },
   likedText: { color: '#ff00ff' },
-  videoControls: { position: 'absolute', bottom: 0, width: '100%', padding: 10 },
-  progressContainer: { height: 4, backgroundColor: '#333', borderRadius: 2 },
-  progressBar: { height: 4, backgroundColor: '#ff00ff', borderRadius: 2 },
-  playPauseButton: { position: 'absolute', right: 10, bottom: 10 },
+  videoControls: { position: 'absolute', bottom: 0, width: '100%', padding: 10, paddingBottom: 15 },
+  timeContainer: { flexDirection: 'row', justifyContent: 'space-between', marginBottom: 5 },
+  timeText: { color: '#fff', fontSize: 12, fontWeight: '500' },
+  seekbarContainer: { height: 20, justifyContent: 'center', width: '100%' },
+  progressBackground: { position: 'absolute', height: 4, width: '100%', backgroundColor: 'rgba(255,255,255,0.3)', borderRadius: 2 },
+  progressBar: { position: 'absolute', height: 4, backgroundColor: '#ff00ff', borderRadius: 2, shadowColor: '#ff00ff', shadowOffset: { width: 0, height: 0 }, shadowOpacity: 0.5, shadowRadius: 4 },
+  seekKnob: { position: 'absolute', width: 16, height: 16, borderRadius: 8, backgroundColor: '#ff00ff', marginLeft: -8, borderWidth: 2, borderColor: '#fff', shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.3, shadowRadius: 2, zIndex: 2 },
+  seekbarTouchable: { position: 'absolute', width: '100%', height: 20 },
+  seekbarTouchArea: { position: 'absolute', width: '100%', height: 20, backgroundColor: 'transparent', zIndex: 1 },
+  controlsRow: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center', marginTop: 10 },
+  controlButton: { padding: 8 },
+  playPauseButton: { width: 40, height: 40, borderRadius: 20, overflow: 'hidden', justifyContent: 'center', alignItems: 'center' },
   videoOverlay: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center' },
   playButton: { width: 60, height: 60, borderRadius: 30, overflow: 'hidden' },
   playButtonGradient: { flex: 1, justifyContent: 'center', alignItems: 'center', borderRadius: 30 },
   errorContainer: { ...StyleSheet.absoluteFill, justifyContent: 'center', alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.6)' },
   errorText: { color: '#fff', marginTop: 10 },
   errorSubText: { color: '#ccc', fontSize: 12 },
-  fullscreenContainer: { flex: 1, backgroundColor: 'black' },
-  fullscreenVideo: { flex: 1 },
-  fullscreenControls: { position: 'absolute', bottom: 0, width: '100%', padding: 10 },
-  videoControlsRow: { flexDirection: 'row', justifyContent: 'space-around', alignItems: 'center' },
-  controlButton: { padding: 10 },
-  closeButton: { position: 'absolute', top: 40, right: 20 },
-  topProgressContainer: { height: 4, width: '100%', backgroundColor: '#333' },
+  
+  // Fullscreen styles
+  fullscreenContainer: { 
+    flex: 1, 
+    backgroundColor: '#0d0d2a',
+    justifyContent: 'center'
+  },
+  fullscreenVideo: { 
+    width: '100%',
+    height: '100%',
+    position: 'absolute'
+  },
+  fullscreenTopControls: { 
+    position: 'absolute', 
+    top: 0, 
+    left: 0,
+    right: 0,
+    height: 100, 
+    paddingTop: 40,
+    paddingHorizontal: 20
+  },
+  fullscreenBottomControls: { 
+    position: 'absolute', 
+    bottom: 0, 
+    left: 0,
+    right: 0,
+    paddingBottom: 30,
+    paddingHorizontal: 20,
+    paddingTop: 50
+  },
+  fullscreenTimeContainer: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-between', 
+    marginBottom: 10,
+    paddingHorizontal: 5
+  },
+  fullscreenSeekbarContainer: { 
+    height: 30, 
+    justifyContent: 'center', 
+    width: '100%',
+    marginBottom: 20
+  },
+  fullscreenProgressBackground: { 
+    position: 'absolute', 
+    height: 6, 
+    width: '100%', 
+    backgroundColor: 'rgba(255,255,255,0.3)', 
+    borderRadius: 3 
+  },
+  fullscreenProgressBar: {
+    position: 'absolute',
+    height: 6,
+    backgroundColor: '#ff00ff',
+    borderRadius: 3,
+    shadowColor: '#ff00ff',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.7,
+    shadowRadius: 5
+  },
+  fullscreenSeekKnob: { 
+    position: 'absolute', 
+    width: 20, 
+    height: 20, 
+    borderRadius: 10, 
+    backgroundColor: '#ff00ff', 
+    marginLeft: -10, 
+    borderWidth: 3, 
+    borderColor: '#fff', 
+    shadowColor: '#000', 
+    shadowOffset: { width: 0, height: 2 }, 
+    shadowOpacity: 0.5, 
+    shadowRadius: 4,
+    zIndex: 2
+  },
+  fullscreenSeekbarTouchable: {
+    position: 'absolute',
+    width: '100%',
+    height: 30
+  },
+  fullscreenSeekbarTouchArea: {
+    position: 'absolute',
+    width: '100%',
+    height: 30,
+    backgroundColor: 'transparent',
+    zIndex: 1
+  },
+  fullscreenControlsRow: { 
+    flexDirection: 'row', 
+    justifyContent: 'space-around', 
+    alignItems: 'center',
+    paddingHorizontal: 20
+  },
+  fullscreenControlButton: { 
+    padding: 12,
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 30
+  },
+  fullscreenPlayPauseButton: { 
+    width: 60, 
+    height: 60, 
+    borderRadius: 30, 
+    overflow: 'hidden', 
+    justifyContent: 'center', 
+    alignItems: 'center',
+    marginHorizontal: 20
+  },
+  fullscreenPlayButtonGradient: { 
+    width: '100%',
+    height: '100%',
+    justifyContent: 'center', 
+    alignItems: 'center', 
+    borderRadius: 30 
+  },
+  closeButton: { 
+    position: 'absolute', 
+    top: 0, 
+    right: 0, 
+    padding: 15,
+    zIndex: 10 
+  },
 });
 
 export default PostItem;

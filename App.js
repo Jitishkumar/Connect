@@ -3,6 +3,7 @@ import { NavigationContainer } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppNavigator } from './src/navigation/AppNavigator';
 import { AccountProvider } from './src/context/AccountContext';
+import { VideoProvider } from './src/context/VideoContext';
 import { supabase } from './src/config/supabase';
 import OneSignal from 'react-native-onesignal';
 import Constants from 'expo-constants';
@@ -53,9 +54,11 @@ export default function App() {
   return (
     <SafeAreaProvider>
       <AccountProvider>
-        <NavigationContainer>
-          <AppNavigator />
-        </NavigationContainer>
+        <VideoProvider>
+          <NavigationContainer>
+            <AppNavigator />
+          </NavigationContainer>
+        </VideoProvider>
       </AccountProvider>
     </SafeAreaProvider>
   );
