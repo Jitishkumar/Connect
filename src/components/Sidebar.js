@@ -1,14 +1,41 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { supabase } from '../config/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import ProfileVisitsModal from './ProfileVisitsModal';
 
 
 
 const Sidebar = ({ isVisible, onClose }) => {
   const navigation = useNavigation();
+  const [showVisitsModal, setShowVisitsModal] = useState(false);
+  const [isFemaleProfle, setIsFemaleProfle] = useState(false);
+
+  useEffect(() => {
+    if (isVisible) {
+      checkUserGender();
+    }
+  }, [isVisible]);
+
+  const checkUserGender = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('gender')
+        .eq('id', user.id)
+        .single();
+
+      if (error) throw error;
+      setIsFemaleProfle(data?.gender === 'female');
+    } catch (error) {
+      console.error('Error checking user gender:', error);
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -74,7 +101,15 @@ const Sidebar = ({ isVisible, onClose }) => {
             <Text style={styles.menuText}>Confessions</Text>
           </TouchableOpacity>
 
-         
+          {isFemaleProfle && (
+            <TouchableOpacity 
+              style={styles.menuItem}
+              onPress={() => setShowVisitsModal(true)}
+            >
+              <Ionicons name="eye" size={24} color="#ff00ff" />
+              <Text style={styles.menuText}>Profile Visits</Text>
+            </TouchableOpacity>
+          )}
 
           <TouchableOpacity style={styles.menuItem}>
             <Ionicons name="settings" size={24} color="#ff00ff" />
@@ -92,6 +127,10 @@ const Sidebar = ({ isVisible, onClose }) => {
           </TouchableOpacity>
         </View>
       </View>
+      <ProfileVisitsModal
+        visible={showVisitsModal}
+        onClose={() => setShowVisitsModal(false)}
+      />
     </Modal>
   );
 };

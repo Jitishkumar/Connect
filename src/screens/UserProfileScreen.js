@@ -106,6 +106,24 @@ const UserProfileScreen = () => {
   const loadUserProfile = async () => {
     try {
       setLoading(true);
+      
+      // Get current user for recording visit
+      const { data: { user: currentUser } } = await supabase.auth.getUser();
+      
+      // Record profile visit if viewing someone else's profile
+      if (currentUser && currentUser.id !== userId) {
+        const { error: visitError } = await supabase
+          .from('profile_visits')
+          .insert({
+            profile_id: userId,
+            visitor_id: currentUser.id
+          });
+        
+        if (visitError) {
+          console.error('Error recording profile visit:', visitError);
+        }
+      }
+
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
