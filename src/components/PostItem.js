@@ -23,8 +23,8 @@ import { Alert } from 'react-native';
 const { width } = Dimensions.get('window');
 
 const PostItem = ({ post, onOptionsPress }) => {
-  const [isLiked, setIsLiked] = useState(post.likes?.[0]?.count > 0);
-  const [likesCount, setLikesCount] = useState(post.likes?.[0]?.count || 0);
+  const [isLiked, setIsLiked] = useState(post.likes?.length > 0);
+  const [likesCount, setLikesCount] = useState(post.likes?.length || 0);
   const [commentsCount, setCommentsCount] = useState(post.comments?.[0]?.count || 0);
   const navigation = useNavigation();
   const [loading, setLoading] = useState(true);
