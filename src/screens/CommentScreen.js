@@ -30,6 +30,12 @@ const CommentScreen = ({ visible, onClose, postId }) => {
   const navigation = useNavigation();
   const pan = useRef(new Animated.ValueXY()).current;
   const [modalHeight, setModalHeight] = useState(height * 0.8);
+
+  const handleClose = () => {
+    if (onClose) {
+      onClose();
+    }
+  };
   
   const panResponder = useRef(
     PanResponder.create({
@@ -371,11 +377,10 @@ const CommentScreen = ({ visible, onClose, postId }) => {
             <View style={styles.dragHandle} {...panResponder.panHandlers}>
               <View style={styles.dragIndicator} />
             </View>
+            <Text style={styles.headerTitle}>Comments</Text>
             <TouchableOpacity onPress={onClose}>
               <Ionicons name="close" size={24} color="#fff" />
             </TouchableOpacity>
-            <Text style={styles.headerTitle}>Comments</Text>
-            <View style={{ width: 24 }} />
           </LinearGradient>
 
           {loading ? (
@@ -396,6 +401,11 @@ const CommentScreen = ({ visible, onClose, postId }) => {
             colors={['#1a1a3a', '#0d0d2a']}
             style={styles.inputContainer}
           >
+            <View style={styles.modalHeader}>
+              <TouchableOpacity onPress={handleClose} style={styles.closeButton}>
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
             <View style={styles.anonymousOption}>
               <Text style={styles.anonymousText}>Anonymous</Text>
               <Switch
