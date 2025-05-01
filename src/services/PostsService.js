@@ -153,6 +153,67 @@ export class PostsService {
     }
   }
   
+  // Delete a post
+  static async deletePost(postId) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+
+      // Get post details first
+      const { data: post, error: fetchError } = await supabase
+        .from('posts')
+        .select('*')
+        .eq('id', postId)
+        .eq('user_id', user.id)
+        .single();
+
+      if (fetchError) throw fetchError;
+      if (!post) throw new Error('Post not found or you do not have permission to delete it');
+
+      // Delete the post
+      const { error: deleteError } = await supabase
+        .from('posts')
+        .delete()
+        .eq('id', postId)
+        .eq('user_id', user.id);
+
+      if (deleteError) throw deleteError;
+
+      // If post had media, delete from Cloudinary
+      if (post.cloudinary_public_id) {
+        await deleteFromCloudinary(post.cloudinary_public_id, post.type).catch(console.error);
+      }
+
+      return true;
+    } catch (error) {
+      console.error('Error deleting post:', error);
+      throw error;
+    }
+  }
+
+  // Edit post caption
+  static async editPost(postId, newCaption) {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) throw new Error('User not authenticated');
+
+      // Update the post
+      const { data, error } = await supabase
+        .from('posts')
+        .update({ caption: newCaption.trim() })
+        .eq('id', postId)
+        .eq('user_id', user.id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error editing post:', error);
+      throw error;
+    }
+  }
+
   // Like/Unlike a post
   static async toggleLike(postId) {
     try {

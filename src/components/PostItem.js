@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+
+
 import {
   View,
   Text,
@@ -10,7 +12,8 @@ import {
   Modal,
   PanResponder,
   ScrollView,
-  Linking
+  Linking,
+  TextInput
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
@@ -170,8 +173,19 @@ const PostItem = ({ post, onOptionsPress }) => {
 
   const [showLikesModal, setShowLikesModal] = useState(false);
   const [showCommentModal, setShowCommentModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editCaption, setEditCaption] = useState(post.caption || '');
   const [likesList, setLikesList] = useState([]);
   const [loadingLikes, setLoadingLikes] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setCurrentUser(user);
+    };
+    getCurrentUser();
+  }, []);
 
   const handleLike = async () => {
     try {
@@ -209,6 +223,51 @@ const PostItem = ({ post, onOptionsPress }) => {
   const handleComment = () => {
     setShowCommentModal(true);
   };
+
+  const handleEdit = async () => {
+    try {
+      await PostsService.editPost(post.id, editCaption);
+      post.caption = editCaption;
+      setShowEditModal(false);
+      Alert.alert('Success', 'Post updated successfully');
+    } catch (error) {
+      console.error('Error updating post:', error);
+      Alert.alert('Error', 'Failed to update post');
+    }
+  };
+
+  const handleDelete = async () => {
+    Alert.alert(
+      'Delete Post',
+      'Are you sure you want to delete this post?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await PostsService.deletePost(post.id);
+              // Trigger parent component update
+              if (onOptionsPress) {
+                onOptionsPress({ type: 'delete', postId: post.id });
+              }
+              // Close any open modals
+              setShowLikesModal(false);
+              setShowCommentModal(false);
+              setShowEditModal(false);
+            } catch (error) {
+              console.error('Error deleting post:', error);
+              Alert.alert('Error', 'Failed to delete post');
+            }
+          }
+        }
+      ]
+    );
+  };
   
   const handleCloseCommentModal = () => {
     setShowCommentModal(false);
@@ -236,8 +295,21 @@ const PostItem = ({ post, onOptionsPress }) => {
               </Text>
             </View>
           </TouchableOpacity>
-          {onOptionsPress && (
-            <TouchableOpacity style={styles.optionsButton} onPress={() => onOptionsPress(post)}>
+          {currentUser && currentUser.id === post.user_id && (
+            <TouchableOpacity 
+              style={styles.optionsButton} 
+              onPress={() => {
+                Alert.alert(
+                  'Post Options',
+                  'What would you like to do?',
+                  [
+                    { text: 'Edit Caption', onPress: () => setShowEditModal(true) },
+                    { text: 'Delete Post', onPress: handleDelete, style: 'destructive' },
+                    { text: 'Cancel', style: 'cancel' }
+                  ]
+                );
+              }}
+            >
               <Ionicons name="ellipsis-vertical" size={20} color="#fff" />
             </TouchableOpacity>
           )}
@@ -465,6 +537,41 @@ const PostItem = ({ post, onOptionsPress }) => {
         postId={post.id} 
       />
 
+      {/* Edit Caption Modal */}
+      <Modal
+        visible={showEditModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowEditModal(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Edit Caption</Text>
+              <TouchableOpacity onPress={() => setShowEditModal(false)}>
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            
+            <TextInput
+              style={styles.editInput}
+              value={editCaption}
+              onChangeText={setEditCaption}
+              multiline
+              placeholder="Write a caption..."
+              placeholderTextColor="#666"
+            />
+            
+            <TouchableOpacity 
+              style={styles.editButton}
+              onPress={handleEdit}
+            >
+              <Text style={styles.editButtonText}>Save Changes</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* Fullscreen Video */}
       {fullscreen && (
         <Modal
@@ -573,6 +680,28 @@ const PostItem = ({ post, onOptionsPress }) => {
 };
 
 const styles = StyleSheet.create({
+  editInput: {
+    backgroundColor: '#1a1a3a',
+    borderRadius: 10,
+    padding: 15,
+    color: '#fff',
+    fontSize: 16,
+    minHeight: 100,
+    textAlignVertical: 'top',
+    marginVertical: 15,
+  },
+  editButton: {
+    backgroundColor: '#ff00ff',
+    borderRadius: 25,
+    padding: 15,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  editButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
   modalContainer: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',

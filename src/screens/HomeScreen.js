@@ -1,7 +1,7 @@
 
 
 import React, { useState, useEffect } from 'react';
-import { StyleSheet, View, Text, ScrollView, TouchableOpacity, TextInput, Image, Modal, ActivityIndicator, Alert, FlatList } from 'react-native';
+import { StyleSheet, View, Text, ScrollView, TouchableOpacity, TextInput, Image, Modal, ActivityIndicator, Alert, FlatList, RefreshControl } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useFonts, Poppins_700Bold } from '@expo-google-fonts/poppins';
 import { useNavigation } from '@react-navigation/native';
@@ -23,8 +23,8 @@ const HomeScreen = () => {
   const [viewerVisible, setViewerVisible] = useState(false);
   const [postText, setPostText] = useState('');
   const [showPostInput, setShowPostInput] = useState(false);
-  const [selectedPost, setSelectedPost] = useState(null);
-  const [showPostOptions, setShowPostOptions] = useState(false);
+
+  const [refreshing, setRefreshing] = useState(false);
   
   let [fontsLoaded] = useFonts({
     Poppins_700Bold,
@@ -55,6 +55,7 @@ const HomeScreen = () => {
     try {
       const data = await PostsService.getAllPosts();
       setPosts(data);
+      setRefreshing(false);
     } catch (error) {
       console.error('Error loading posts:', error);
       Alert.alert('Error', 'Failed to load posts');
@@ -121,40 +122,22 @@ const HomeScreen = () => {
     navigation.navigate('CreatePost');
   };
 
-  const handleDeletePost = async (post) => {
-    Alert.alert(
-      'Delete Post',
-      'Are you sure you want to delete this post?',
-      [
-        {
-          text: 'Cancel',
-          style: 'cancel'
-        },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: async () => {
-            try {
-              await PostsService.deletePost(post.id);
-              await loadPosts();
-              Alert.alert('Success', 'Post deleted successfully');
-            } catch (error) {
-              console.error('Error deleting post:', error);
-              Alert.alert('Error', 'Failed to delete post');
-            }
-          }
-        }
-      ]
-    );
-  };
+
+  
+  // Post deletion is handled in PostItem component
+
+
+
+
+
+
 
   if (!fontsLoaded) {
     return null;
   }
 
-  return (
-    <View style={styles.container}>
-      {}
+  const renderHeader = () => (
+    <>
       <LinearGradient
         colors={['#0a0a2a', '#1a1a3a']}
         start={{x: 0, y: 0}}
@@ -198,7 +181,7 @@ const HomeScreen = () => {
         </View>
       </LinearGradient>
 
-      <ScrollView>
+      <View>
         {/* Add categories before stories */}
    
 
@@ -346,30 +329,7 @@ const HomeScreen = () => {
           </View>
         </Modal>
 
-        {/* Post Options Modal */}
-        <Modal
-          visible={showPostOptions}
-          transparent={true}
-          animationType="slide"
-        >
-          <TouchableOpacity 
-            style={styles.modalOverlay}
-            onPress={() => setShowPostOptions(false)}
-          >
-            <View style={styles.optionsModal}>
-              <TouchableOpacity 
-                style={styles.optionItem}
-                onPress={() => {
-                  setShowPostOptions(false);
-                  handleDeletePost(selectedPost);
-                }}
-              >
-                <Ionicons name="trash-outline" size={24} color="#ff0000" />
-                <Text style={[styles.optionText, { color: '#ff0000' }]}>Delete Post</Text>
-              </TouchableOpacity>
-            </View>
-          </TouchableOpacity>
-        </Modal>
+
 
         {/* Story Viewer Modal */}
         <Modal
@@ -410,19 +370,34 @@ const HomeScreen = () => {
           </View>
         </Modal>
 
-        <View style={styles.feed}>
-          {posts.map((post) => (
-            <PostItem 
-              key={post.id} 
-              post={post} 
-              onOptionsPress={() => {
-                setSelectedPost(post);
-                setShowPostOptions(true);
-              }}
-            />
-          ))}
-        </View>
-      </ScrollView>
+      </View>
+    </>
+  );
+
+  return (
+    <View style={styles.container}>
+      <FlatList
+        data={posts}
+        keyExtractor={(item) => item.id.toString()}
+        renderItem={({ item }) => (
+          <PostItem
+            post={item}
+          />
+        )}
+        ListHeaderComponent={renderHeader}
+        showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={() => {
+              setRefreshing(true);
+              loadPosts();
+            }}
+            colors={['#ff00ff']}
+            tintColor="#ff00ff"
+          />
+        }
+      />
     </View>
   );
 };
