@@ -173,16 +173,9 @@ const PostsScreen = () => {
   const handleLike = async (postId) => {
     try {
       const isLiked = await PostsService.toggleLike(postId);
-      setPosts(posts.map(post => {
-        if (post.id === postId) {
-          const currentLikes = post.likes[0].count;
-          return {
-            ...post,
-            likes: [{ count: isLiked ? currentLikes + 1 : currentLikes - 1 }]
-          };
-        }
-        return post;
-      }));
+      // Refresh posts to get accurate like count
+      const updatedPosts = await PostsService.getAllPosts();
+      setPosts(updatedPosts);
     } catch (error) {
       console.error('Error toggling like:', error);
       Alert.alert('Error', 'Failed to update like');
@@ -257,7 +250,7 @@ const PostsScreen = () => {
       </View>
 
       <View style={styles.postFooter}>
-        <Text style={styles.likes}>{item.likes[0].count} likes</Text>
+        <Text style={styles.likes}>{item.likes?.length || 0} likes</Text>
         {item.caption && (
           <Text style={styles.caption}>
             <Text style={styles.username}>{item.profiles.username}</Text> {item.caption}

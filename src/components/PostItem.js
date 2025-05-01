@@ -24,8 +24,8 @@ import CommentScreen from '../screens/CommentScreen';
 const { width } = Dimensions.get('window');
 
 const PostItem = ({ post, onOptionsPress }) => {
-  const [isLiked, setIsLiked] = useState(post.likes?.length > 0);
-  const [likesCount, setLikesCount] = useState(post.likes?.length || 0);
+  const [isLiked, setIsLiked] = useState(post.is_liked || false);
+  const [likesCount, setLikesCount] = useState(post.likes?.[0]?.count || 0);
   const [commentsCount, setCommentsCount] = useState(post.comments?.[0]?.count || 0);
   const navigation = useNavigation();
   const [loading, setLoading] = useState(true);
@@ -174,9 +174,9 @@ const PostItem = ({ post, onOptionsPress }) => {
 
   const handleLike = async () => {
     try {
-      const liked = await PostsService.toggleLike(post.id);
+      const { isLiked: liked, likesCount: newCount } = await PostsService.toggleLike(post.id);
       setIsLiked(liked);
-      setLikesCount(prev => liked ? prev + 1 : prev - 1);
+      setLikesCount(newCount);
     } catch (error) {
       console.error('Error toggling like:', error);
       Alert.alert('Error', 'Failed to update like');

@@ -107,16 +107,23 @@ export class PostsService {
           *,
           profiles:user_id (id, username, avatar_url),
           likes:post_likes (count),
-          comments:post_comments (count)
+          comments:post_comments (count),
+          user_likes:post_likes (user_id)
         `)
         .or(
           `user_id.eq.${user.id},` + // User's own posts
           (followingIds.length > 0 ? `user_id.in.(${followingIds.join(',')})` : 'id.is.null') // Posts from followed users
         )
         .order('created_at', { ascending: false });
+
+      // Add is_liked field to each post
+      const postsWithLikeStatus = data?.map(post => ({
+        ...post,
+        is_liked: post.user_likes?.some(like => like.user_id === user.id) || false
+      })) || [];
       
       if (error) throw error;
-      return data;
+      return postsWithLikeStatus;
       
     } catch (error) {
       console.error('Error fetching posts:', error);
@@ -169,7 +176,17 @@ export class PostsService {
           .eq('user_id', user.id);
           
         if (error) throw error;
-        return false; // Indicates unliked
+        
+        // Get updated like count
+        const { data: updatedLikes } = await supabase
+          .from('post_likes')
+          .select('count')
+          .eq('post_id', postId);
+          
+        return {
+          isLiked: false,
+          likesCount: updatedLikes?.[0]?.count || 0
+        };
       } else {
         // Like
         const { error } = await supabase
@@ -180,7 +197,17 @@ export class PostsService {
           });
           
         if (error) throw error;
-        return true; // Indicates liked
+        
+        // Get updated like count
+        const { data: updatedLikes } = await supabase
+          .from('post_likes')
+          .select('count')
+          .eq('post_id', postId);
+          
+        return {
+          isLiked: true,
+          likesCount: updatedLikes?.[0]?.count || 0
+        };
       }
       
     } catch (error) {
