@@ -9,7 +9,8 @@ import {
   ActivityIndicator,
   Modal,
   PanResponder,
-  ScrollView
+  ScrollView,
+  Linking
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
@@ -245,7 +246,18 @@ const PostItem = ({ post, onOptionsPress }) => {
         {/* Post Caption */}
         {post.caption && (
           <View style={styles.captionContainer}>
-            <Text style={styles.caption}>{post.caption}</Text>
+            <Text style={styles.caption}>
+              {post.caption.split(/(https?:\/\/[^\s]+)/g).map((part, index) => {
+                if (part.match(/^https?:\/\//)) {
+                  return (
+                    <TouchableOpacity key={index} onPress={() => Linking.openURL(part)}>
+                      <Text style={styles.link}>{part}</Text>
+                    </TouchableOpacity>
+                  );
+                }
+                return part;
+              })}
+            </Text>
           </View>
         )}
 
@@ -584,6 +596,10 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  link: {
+    color: '#00ffff',
+    textDecorationLine: 'underline',
   },
   loadingIndicator: {
     marginTop: 20,
