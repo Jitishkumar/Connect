@@ -19,6 +19,7 @@ import { useVideo } from '../context/VideoContext';
 import { PostsService } from '../services/PostsService';
 import { supabase } from '../config/supabase';
 import { Alert } from 'react-native';
+import CommentScreen from '../screens/CommentScreen';
 
 const { width } = Dimensions.get('window');
 
@@ -167,6 +168,7 @@ const PostItem = ({ post, onOptionsPress }) => {
   }, [fullscreen]);
 
   const [showLikesModal, setShowLikesModal] = useState(false);
+  const [showCommentModal, setShowCommentModal] = useState(false);
   const [likesList, setLikesList] = useState([]);
   const [loadingLikes, setLoadingLikes] = useState(false);
 
@@ -204,7 +206,11 @@ const PostItem = ({ post, onOptionsPress }) => {
   };
 
   const handleComment = () => {
-    navigation.navigate('Comment', { postId: post.id });
+    setShowCommentModal(true);
+  };
+  
+  const handleCloseCommentModal = () => {
+    setShowCommentModal(false);
   };
 
   return (
@@ -439,6 +445,13 @@ const PostItem = ({ post, onOptionsPress }) => {
           </View>
         </Modal>
       </LinearGradient>
+
+      {/* Comment Modal */}
+      <CommentScreen 
+        visible={showCommentModal} 
+        onClose={handleCloseCommentModal} 
+        postId={post.id} 
+      />
 
       {/* Fullscreen Video */}
       {fullscreen && (
