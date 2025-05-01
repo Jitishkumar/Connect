@@ -8,17 +8,25 @@ import {
   Dimensions,
   ActivityIndicator,
   Modal,
-  PanResponder
+  PanResponder,
+  ScrollView
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { useVideo } from '../context/VideoContext';
+import { PostsService } from '../services/PostsService';
+import { supabase } from '../config/supabase';
+import { Alert } from 'react-native';
+import CommentScreen from '../screens/CommentScreen';
 
 const { width } = Dimensions.get('window');
 
-const PostItem = ({ post, onLike, onComment, onOptionsPress }) => {
+const PostItem = ({ post, onOptionsPress }) => {
+  const [isLiked, setIsLiked] = useState(post.is_liked || false);
+  const [likesCount, setLikesCount] = useState(post.likes?.[0]?.count || 0);
+  const [commentsCount, setCommentsCount] = useState(post.comments?.[0]?.count || 0);
   const navigation = useNavigation();
   const [loading, setLoading] = useState(true);
   const [playing, setPlaying] = useState(false);
@@ -159,6 +167,52 @@ const PostItem = ({ post, onLike, onComment, onOptionsPress }) => {
     };
   }, [fullscreen]);
 
+  const [showLikesModal, setShowLikesModal] = useState(false);
+  const [showCommentModal, setShowCommentModal] = useState(false);
+  const [likesList, setLikesList] = useState([]);
+  const [loadingLikes, setLoadingLikes] = useState(false);
+
+  const handleLike = async () => {
+    try {
+      const { isLiked: liked, likesCount: newCount } = await PostsService.toggleLike(post.id);
+      setIsLiked(liked);
+      setLikesCount(newCount);
+    } catch (error) {
+      console.error('Error toggling like:', error);
+      Alert.alert('Error', 'Failed to update like');
+    }
+  };
+
+  const handleShowLikes = async () => {
+    try {
+      setLoadingLikes(true);
+      const { data, error } = await supabase
+        .from('post_likes')
+        .select(`
+          user_id,
+          profiles:user_id (username, avatar_url)
+        `)
+        .eq('post_id', post.id);
+
+      if (error) throw error;
+      setLikesList(data);
+      setShowLikesModal(true);
+    } catch (error) {
+      console.error('Error fetching likes:', error);
+      Alert.alert('Error', 'Failed to load likes');
+    } finally {
+      setLoadingLikes(false);
+    }
+  };
+
+  const handleComment = () => {
+    setShowCommentModal(true);
+  };
+  
+  const handleCloseCommentModal = () => {
+    setShowCommentModal(false);
+  };
+
   return (
     <>
       <LinearGradient
@@ -194,6 +248,8 @@ const PostItem = ({ post, onLike, onComment, onOptionsPress }) => {
             <Text style={styles.caption}>{post.caption}</Text>
           </View>
         )}
+
+
 
         {/* Post Media */}
         {post.media_url && (
@@ -325,19 +381,19 @@ const PostItem = ({ post, onLike, onComment, onOptionsPress }) => {
 
         {/* Post Actions */}
         <LinearGradient colors={['rgba(26, 26, 58, 0.8)', 'rgba(13, 13, 42, 0.9)']} style={styles.actions}>
-          <TouchableOpacity style={styles.actionButton} onPress={() => onLike(post.id)}>
-            <LinearGradient colors={post.is_liked ? ['#ff00ff', '#9900ff'] : ['transparent', 'transparent']} style={post.is_liked ? styles.likedIconBackground : {}}>
-              <Ionicons name={post.is_liked ? 'heart' : 'heart-outline'} size={26} color={post.is_liked ? '#fff' : '#e0e0ff'} />
+          <TouchableOpacity style={styles.actionButton} onPress={handleLike}>
+            <LinearGradient colors={isLiked ? ['#ff00ff', '#9900ff'] : ['transparent', 'transparent']} style={isLiked ? styles.likedIconBackground : {}}>
+              <Ionicons name={isLiked ? 'heart' : 'heart-outline'} size={26} color={isLiked ? '#fff' : '#e0e0ff'} />
             </LinearGradient>
-            <Text style={[styles.actionText, post.is_liked && styles.likedText]}>
-              {post.likes && post.likes[0] ? post.likes[0].count : 0}
+            <Text style={[styles.actionText, isLiked && styles.likedText]}>
+              {likesCount}
             </Text>
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.actionButton} onPress={() => onComment(post)}>
+          <TouchableOpacity style={styles.actionButton} onPress={handleComment}>
             <Ionicons name="chatbubble-outline" size={24} color="#e0e0ff" />
             <Text style={styles.actionText}>
-              {post.comments && post.comments[0] ? post.comments[0].count : 0}
+              {commentsCount}
             </Text>
           </TouchableOpacity>
 
@@ -345,7 +401,57 @@ const PostItem = ({ post, onLike, onComment, onOptionsPress }) => {
             <Ionicons name="share-social-outline" size={24} color="#e0e0ff" />
           </TouchableOpacity>
         </LinearGradient>
+
+
+        {/* Likes Modal */}
+        <Modal
+          visible={showLikesModal}
+          transparent={true}
+          animationType="slide"
+          onRequestClose={() => setShowLikesModal(false)}
+        >
+          <View style={styles.modalContainer}>
+            <View style={styles.modalContent}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Likes</Text>
+                <TouchableOpacity onPress={() => setShowLikesModal(false)}>
+                  <Ionicons name="close" size={24} color="#fff" />
+                </TouchableOpacity>
+              </View>
+              
+              {loadingLikes ? (
+                <ActivityIndicator size="large" color="#ff00ff" style={styles.loadingIndicator} />
+              ) : (
+                <ScrollView style={styles.likesList}>
+                  {likesList.map((like, index) => (
+                    <TouchableOpacity 
+                      key={index}
+                      style={styles.likeItem}
+                      onPress={() => {
+                        setShowLikesModal(false);
+                        navigation.navigate('UserProfile', { userId: like.user_id });
+                      }}
+                    >
+                      <Image 
+                        source={{ uri: like.profiles.avatar_url || 'https://via.placeholder.com/150' }}
+                        style={styles.likeAvatar}
+                      />
+                      <Text style={styles.likeUsername}>{like.profiles.username}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+            </View>
+          </View>
+        </Modal>
       </LinearGradient>
+
+      {/* Comment Modal */}
+      <CommentScreen 
+        visible={showCommentModal} 
+        onClose={handleCloseCommentModal} 
+        postId={post.id} 
+      />
 
       {/* Fullscreen Video */}
       {fullscreen && (
@@ -455,6 +561,96 @@ const PostItem = ({ post, onLike, onComment, onOptionsPress }) => {
 };
 
 const styles = StyleSheet.create({
+  modalContainer: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#1a1a3a',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    minHeight: '50%',
+    maxHeight: '80%',
+    padding: 20,
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  loadingIndicator: {
+    marginTop: 20,
+  },
+  likesList: {
+    flex: 1,
+  },
+  likeItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  likeAvatar: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    marginRight: 10,
+  },
+  likeUsername: {
+    fontSize: 16,
+    color: '#fff',
+  },
+  actions: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'center',
+    paddingVertical: 10,
+    borderTopWidth: 0.5,
+    borderTopColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  likedIconBackground: {
+    padding: 8,
+    borderRadius: 20,
+  },
+  likedText: {
+    color: '#ff00ff',
+  },
+  actionButtons: {
+    flexDirection: 'row',
+    justifyContent: 'flex-start',
+    alignItems: 'center',
+    paddingHorizontal: 15,
+    paddingVertical: 10,
+    gap: 20,
+  },
+  actionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  actionText: {
+    color: '#ffffff',
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  iconBackground: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    justifyContent: 'center',
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 5,
+  },
   container: { marginBottom: 20, borderRadius: 10, overflow: 'hidden' },
   header: { flexDirection: 'row', alignItems: 'center', padding: 10, justifyContent: 'space-between' },
   headerLeft: { flexDirection: 'row', alignItems: 'center' },

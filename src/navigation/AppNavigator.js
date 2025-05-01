@@ -18,6 +18,7 @@ import AddAccountScreen from '../screens/AddAccountScreen';
 import ConfessionScreen from '../screens/ConfessionScreen';
 import CreatePostScreen from '../screens/CreatePostScreen';
 import TrendingScreen from '../screens/TrendingScreen';
+import CommentScreen from '../screens/CommentScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -90,6 +91,7 @@ export const AppNavigator = () => {
       <Stack.Screen name="AddAccount" component={AddAccountScreen} options={{ headerShown: false }} />
       <Stack.Screen name="CreatePost" component={CreatePostScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Trending" component={TrendingScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Comment" component={CommentScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 };
