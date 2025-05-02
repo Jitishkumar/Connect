@@ -265,7 +265,32 @@ const ProfileScreen = () => {
   const [showFullBio, setShowFullBio] = useState(false);
   const [followersCount, setFollowersCount] = useState(0);
   const [followingCount, setFollowingCount] = useState(0);
-  // Add new state for followers/following modal
+  const [postsCount, setPostsCount] = useState(0);
+  const [shortsCount, setShortsCount] = useState(0);
+  const [activeTab, setActiveTab] = useState('Post');
+  const [shorts, setShorts] = useState([]);
+
+  const fetchShortsCount = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { count, error } = await supabase
+        .from('posts')
+        .select('*', { count: 'exact' })
+        .eq('user_id', user.id)
+        .eq('post_type', 'short');
+
+      if (error) {
+        console.error('Error fetching shorts count:', error);
+      } else {
+        setShortsCount(count || 0);
+      }
+    } catch (error) {
+      console.error('Error fetching shorts count:', error);
+    }
+  };
+  const [loading, setLoading] = useState(false);
   const [showFollowersModal, setShowFollowersModal] = useState(false);
   const [showFollowingModal, setShowFollowingModal] = useState(false);
   const [followers, setFollowers] = useState([]);
@@ -273,11 +298,6 @@ const ProfileScreen = () => {
   const [loadingConnections, setLoadingConnections] = useState(false);
   const navigation = useNavigation();
 
-  // Remove the navigation reset from useFocusEffect
-// Remove the duplicate code block (the one that starts with "if (currentUser !== account.id)")
-  // Keep only the implementation inside the AccountSwitcherModal's onPress handler
-
-  // In the ProfileScreen component, remove the entire standalone code block
   useFocusEffect(
     React.useCallback(() => {
       const loadProfile = async () => {
@@ -303,8 +323,65 @@ const ProfileScreen = () => {
       loadProfile();
       fetchFollowersCount();
       fetchFollowingCount();
-    }, [])
+      fetchPostsCount();
+      fetchShortsCount();
+      fetchUserContent();
+    }, [activeTab])
   );
+
+  const fetchPostsCount = async () => {
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      const { count, error } = await supabase
+        .from('posts')
+        .select('*', { count: 'exact' })
+        .eq('user_id', user.id);
+
+      if (error) {
+        console.error('Error fetching posts count:', error);
+      } else {
+        setPostsCount(count);
+      }
+    } catch (error) {
+      console.error('Error fetching posts count:', error);
+    }
+  };
+
+  const fetchUserContent = async () => {
+    try {
+      setLoading(true);
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+
+      if (activeTab === 'Post') {
+        const { data, error } = await supabase
+          .from('posts')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('post_type', 'post')
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        setPosts(data || []);
+      } else if (activeTab === 'Short') {
+        const { data, error } = await supabase
+          .from('posts')
+          .select('*')
+          .eq('user_id', user.id)
+          .eq('post_type', 'short')
+          .order('created_at', { ascending: false });
+
+        if (error) throw error;
+        setShorts(data || []);
+      }
+    } catch (error) {
+      console.error('Error fetching user content:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   // Remove everything between useFocusEffect and loadUserProfile
   // Delete the entire standalone block that starts with:
@@ -734,22 +811,28 @@ const ProfileScreen = () => {
           </TouchableOpacity>
 
           <View style={styles.statsContainer}>
-            <View style={styles.stat}>
-              <Text style={styles.statNumber}>100</Text>
-              <Text style={styles.statLabel}>Post</Text>
-            </View>
-            <View style={styles.stat}>
-              <Text style={styles.statNumber}>20</Text>
+            <TouchableOpacity style={styles.stat}>
+              <Text style={styles.statNumber}>{postsCount}</Text>
+              <Text style={styles.statLabel}>Posts</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.stat}>
+              <Text style={styles.statNumber}>{shorts.length}</Text>
               <Text style={styles.statLabel}>Shorts</Text>
-            </View>
-            <View style={styles.stat}>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.stat}
+              onPress={fetchFollowers}
+            >
               <Text style={styles.statNumber}>{followersCount}</Text>
               <Text style={styles.statLabel}>Followers</Text>
-            </View>
-            <View style={styles.stat}>
+            </TouchableOpacity>
+            <TouchableOpacity 
+              style={styles.stat}
+              onPress={fetchFollowing}
+            >
               <Text style={styles.statNumber}>{followingCount}</Text>
               <Text style={styles.statLabel}>Following</Text>
-            </View>
+            </TouchableOpacity>
           </View>
         </View>
 
@@ -804,6 +887,63 @@ const ProfileScreen = () => {
 
 // Add these styles to your StyleSheet
 const styles = StyleSheet.create({
+  tabContainer: {
+    flexDirection: 'row',
+    marginTop: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: '#ddd',
+  },
+  tab: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+  },
+  activeTab: {
+    borderBottomWidth: 2,
+    borderBottomColor: '#ff00ff',
+  },
+  tabText: {
+    fontSize: 16,
+    color: '#666',
+  },
+  activeTabText: {
+    color: '#ff00ff',
+    fontWeight: 'bold',
+  },
+  contentContainer: {
+    flex: 1,
+    marginTop: 10,
+  },
+  gridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    padding: 2,
+  },
+  gridItem: {
+    width: '33.33%',
+    aspectRatio: 1,
+    padding: 2,
+  },
+  gridImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 8,
+  },
+  videoIndicator: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -12 }, { translateY: -12 }],
+  },
+  loader: {
+    marginTop: 20,
+  },
+  noContentText: {
+    textAlign: 'center',
+    marginTop: 20,
+    color: '#666',
+    fontSize: 16,
+  },
   container: {
     flex: 1,
     backgroundColor: '#000',
@@ -1122,3 +1262,28 @@ loadingContainer: {
 }
 });
 export default ProfileScreen;
+
+
+
+const fetchShortsCount = async () => {
+  try {
+    const { data: { user } } = await supabase.auth.getUser();
+    if (!user) return;
+
+
+    const { count, error } = await supabase
+      .from('posts')
+      .select('*', { count: 'exact' })
+      .eq('user_id', user.id)
+      .eq('post_type', 'short');
+
+
+    if (error) {
+      console.error('Error fetching shorts count:', error);
+    } else {
+      setShortsCount(count || 0);
+    }
+  } catch (error) {
+    console.error('Error fetching shorts count:', error);
+  }
+};
