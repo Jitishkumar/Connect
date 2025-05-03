@@ -1,13 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert, Modal, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert, Modal, ActivityIndicator, FlatList } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Sidebar from '../components/Sidebar';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../config/supabase';
 import { useAccounts } from '../context/AccountContext';
-
-
+import PostItem from '../components/PostItem';
 // Define AccountSwitcherModal component outside of the main component
 const AccountSwitcherModal = ({ visible, onClose, loadUserProfile }) => {
   const { accounts, addAccount } = useAccounts();
@@ -269,7 +268,83 @@ const ProfileScreen = () => {
   const [shortsCount, setShortsCount] = useState(0);
   const [activeTab, setActiveTab] = useState('Post');
   const [shorts, setShorts] = useState([]);
+  const [posts, setPosts] = useState([]);
+  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'full'
+  const [selectedPost, setSelectedPost] = useState(null);
+  
+  const handlePostPress = (post) => {
+    setSelectedPost(post);
+    setViewMode('full');
+  };
 
+  const handleBackToGrid = () => {
+    setViewMode('grid');
+    setSelectedPost(null);
+  };
+
+  const renderGridItem = ({ item }) => (
+    <TouchableOpacity 
+      style={styles.gridItem} 
+      onPress={() => handlePostPress(item)}
+    >
+      <Image
+        source={{ uri: item.media_url || 'https://via.placeholder.com/300' }}
+        style={styles.gridImage}
+        resizeMode="cover"
+      />
+      {item.type === 'video' && (
+        <View style={styles.videoIndicator}>
+          <Ionicons name="play-circle" size={24} color="#fff" />
+        </View>
+      )}
+    </TouchableOpacity>
+  );
+
+  const renderPostContent = () => {
+    if (loading) {
+      return (
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color="#ff00ff" />
+        </View>
+      );
+    }
+
+    if (viewMode === 'grid') {
+      return (
+        <FlatList
+          data={activeTab === 'Post' ? posts : shorts}
+          renderItem={renderGridItem}
+          numColumns={3}
+          keyExtractor={item => item.id.toString()}
+          columnWrapperStyle={styles.gridRow}
+          showsVerticalScrollIndicator={false}
+          contentContainerStyle={styles.gridContainer}
+          onRefresh={fetchUserContent}
+          refreshing={loading}
+          ListEmptyComponent={() => (
+            <View style={styles.emptyContainer}>
+              <Text style={styles.emptyText}>
+                {activeTab === 'Post' ? 'No posts yet' : 'No shorts yet'}
+              </Text>
+            </View>
+          )}
+        />
+      );
+    } else if (viewMode === 'full' && selectedPost) {
+      return (
+        <View style={styles.fullPostContainer}>
+          <TouchableOpacity 
+            style={styles.backButton} 
+            onPress={handleBackToGrid}
+          >
+            <Ionicons name="arrow-back" size={24} color="#fff" />
+          </TouchableOpacity>
+          <PostItem post={selectedPost} />
+        </View>
+      );
+    }
+    return null;
+  };
   const fetchShortsCount = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -279,7 +354,7 @@ const ProfileScreen = () => {
         .from('posts')
         .select('*', { count: 'exact' })
         .eq('user_id', user.id)
-        .eq('post_type', 'short');
+        .eq('type', 'short');
 
       if (error) {
         console.error('Error fetching shorts count:', error);
@@ -356,24 +431,28 @@ const ProfileScreen = () => {
       if (!user) return;
 
       if (activeTab === 'Post') {
+        // Fetch all posts (text and image types)
         const { data, error } = await supabase
           .from('posts')
           .select('*')
           .eq('user_id', user.id)
-          .eq('post_type', 'post')
+          .in('type', ['text', 'image'])
           .order('created_at', { ascending: false });
 
         if (error) throw error;
+        console.log('Fetched posts:', data);
         setPosts(data || []);
       } else if (activeTab === 'Short') {
+        // Fetch video posts (shorts)
         const { data, error } = await supabase
           .from('posts')
           .select('*')
           .eq('user_id', user.id)
-          .eq('post_type', 'short')
+          .eq('type', 'video')
           .order('created_at', { ascending: false });
 
         if (error) throw error;
+        console.log('Fetched shorts:', data);
         setShorts(data || []);
       }
     } catch (error) {
@@ -837,49 +916,43 @@ const ProfileScreen = () => {
         </View>
 
         {/* Rest of the profile content */}
+        
+
         <View style={styles.tabsContainer}>
-          <TouchableOpacity style={styles.tabButton}>
-            <Text style={styles.tabButtonText}>Post</Text>
+          <TouchableOpacity 
+            style={[styles.tabButton, activeTab === 'Post' && styles.activeTab]}
+            onPress={() => setActiveTab('Post')}
+          >
+            <Text style={[styles.tabButtonText, activeTab === 'Post' && styles.activeTabText]}>Posts</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.tabButton}>
-            <Text style={styles.tabButtonText}>Shorts</Text>
+
+          <TouchableOpacity 
+            style={[styles.tabButton, activeTab === 'Short' && styles.activeTab]}
+            onPress={() => setActiveTab('Short')}
+          >
+            <Text style={[styles.tabButtonText, activeTab === 'Short' && styles.activeTabText]}>Shorts</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.tabButton, styles.activeTab]}>
-            <Text style={[styles.tabButtonText, styles.activeTabText]}>Details</Text>
+
+          <TouchableOpacity 
+            style={[styles.tabButton, activeTab === 'Details' && styles.activeTab]}
+            onPress={() => setActiveTab('Details')}
+          >
+            <Text style={[styles.tabButtonText, activeTab === 'Details' && styles.activeTabText]}>Details</Text>
           </TouchableOpacity>
         </View>
 
-        <View style={styles.detailsSection}>
-          <View style={styles.detailItem}>
-            <Ionicons name="person-outline" size={24} color="#666" />
-            <View style={styles.detailContent}>
-              <Text style={styles.detailTitle}>About me</Text>
-              <Text style={styles.detailText}>
-                {userProfile?.bio || 'No bio added yet'}
-              </Text>
-            </View>
+        {/* Content based on active tab */}
+        {renderPostContent()}
+        
+        {/* Loading indicator */}
+        {loading && (
+          <View style={styles.loadingContainer}>
+            <ActivityIndicator size="large" color="#ff00ff" />
           </View>
+        )}
 
-          <View style={styles.detailItem}>
-            <Ionicons name="briefcase-outline" size={24} color="#e3a6be" />
-            <View style={styles.detailContent}>
-              <Text style={styles.detailTitle}>Work Experience</Text>
-              <Text style={styles.detailText}>Google UX/UI Designer</Text>
-            </View>
-          </View>
 
-          <View style={styles.detailItem}>
-            <Ionicons name="trophy-outline" size={24} color="#FFD700" />
-            <View style={styles.detailContent}>
-              <Text style={styles.detailTitle}>Member Rank</Text>
-              <Text style={styles.detailText}>
-                {userProfile?.rank 
-                  ? `You are member #${userProfile.rank} on Flexx`
-                  : 'Rank not assigned yet'}
-              </Text>
-            </View>
-          </View>
-        </View>
+
       </ScrollView>
     </View>
   );
@@ -887,42 +960,55 @@ const ProfileScreen = () => {
 
 // Add these styles to your StyleSheet
 const styles = StyleSheet.create({
-  tabContainer: {
-    flexDirection: 'row',
-    marginTop: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: '#ddd',
+  gridContainer: {
+    padding: 4,
   },
-  tab: {
+  gridRow: {
+    justifyContent: 'flex-start',
+    padding: 4,
+  },
+  gridItem: {
     flex: 1,
-    paddingVertical: 10,
-    alignItems: 'center',
+    margin: 4,
+    maxWidth: '33%',
+    aspectRatio: 1,
+    borderRadius: 8,
+    overflow: 'hidden',
   },
-  activeTab: {
-    borderBottomWidth: 2,
-    borderBottomColor: '#ff00ff',
+  gridImage: {
+    width: '100%',
+    height: '100%',
   },
-  tabText: {
-    fontSize: 16,
-    color: '#666',
+  gridItem: {
+    flex: 1/3,
+    aspectRatio: 1,
+    padding: 1,
   },
-  activeTabText: {
-    color: '#ff00ff',
-    fontWeight: 'bold',
+  gridImage: {
+    width: '100%',
+    height: '100%',
+    backgroundColor: '#2a2a2a',
   },
-  contentContainer: {
-    flex: 1,
-    marginTop: 10,
+  videoIndicator: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -12 }, { translateY: -12 }],
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 12,
   },
   gridContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+    paddingBottom: 20,
+  },
+  gridRow: {
+    justifyContent: 'flex-start',
     padding: 2,
   },
   gridItem: {
-    width: '33.33%',
+    flex: 1,
+    margin: 2,
     aspectRatio: 1,
-    padding: 2,
+    maxWidth: '33.33%',
   },
   gridImage: {
     width: '100%',
@@ -1250,15 +1336,50 @@ emptyContainer: {
   alignItems: 'center',
   justifyContent: 'center',
   padding: 40,
+  flex: 1,
 },
 emptyText: {
   color: '#666',
   fontSize: 16,
   marginTop: 10,
+  textAlign: 'center',
 },
 loadingContainer: {
   padding: 40,
   alignItems: 'center',
+},
+detailsContainer: {
+  padding: 20,
+  backgroundColor: '#1a1a1a',
+  borderRadius: 10,
+  margin: 10,
+},
+sectionTitle: {
+  color: '#fff',
+  fontSize: 18,
+  fontWeight: 'bold',
+  marginBottom: 10,
+  marginTop: 20,
+},
+rankText: {
+  color: '#ff00ff',
+  fontSize: 16,
+  marginBottom: 20,
+},
+gridRow: {
+  justifyContent: 'flex-start',
+  padding: 2,
+},
+gridItem: {
+  flex: 1,
+  margin: 2,
+  aspectRatio: 1,
+  maxWidth: '33.33%',
+},
+gridImage: {
+  width: '100%',
+  height: '100%',
+  borderRadius: 8,
 }
 });
 export default ProfileScreen;
@@ -1270,13 +1391,11 @@ const fetchShortsCount = async () => {
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-
     const { count, error } = await supabase
       .from('posts')
       .select('*', { count: 'exact' })
       .eq('user_id', user.id)
-      .eq('post_type', 'short');
-
+      .eq('type', 'short');
 
     if (error) {
       console.error('Error fetching shorts count:', error);
