@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, Image, TouchableOpacity, Alert, Modal, ActivityIndicator, FlatList } from 'react-native';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { View, Text, StyleSheet, Image, TouchableOpacity, Alert, Modal, ActivityIndicator, FlatList, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import Sidebar from '../components/Sidebar';
@@ -7,14 +7,14 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { supabase } from '../config/supabase';
 import { useAccounts } from '../context/AccountContext';
 import PostItem from '../components/PostItem';
-// Define AccountSwitcherModal component outside of the main component
+
+// AccountSwitcherModal component
 const AccountSwitcherModal = ({ visible, onClose, loadUserProfile }) => {
   const { accounts, addAccount } = useAccounts();
   const navigation = useNavigation();
   const [currentUser, setCurrentUser] = useState(null);
   const [refreshedAccounts, setRefreshedAccounts] = useState([]);
 
-  // Get current user and refresh accounts when modal opens
   useEffect(() => {
     if (visible) {
       getCurrentUser();
@@ -33,20 +33,13 @@ const AccountSwitcherModal = ({ visible, onClose, loadUserProfile }) => {
     }
   };
 
-  // Fetch the latest profile data for all accounts
   const refreshAccountData = async () => {
     try {
       const uniqueIds = {};
-      
-      // Get the most recent account for each ID
       accounts.forEach(account => {
         uniqueIds[account.id] = account;
       });
-      
-      // Convert to array
       const uniqueAccounts = Object.values(uniqueIds);
-      
-      // Refresh each account's data
       const refreshed = await Promise.all(
         uniqueAccounts.map(async (account) => {
           try {
@@ -55,20 +48,14 @@ const AccountSwitcherModal = ({ visible, onClose, loadUserProfile }) => {
               .select('*')
               .eq('id', account.id)
               .single();
-  
             if (error) throw error;
-  
             if (data) {
-              // Update the account in context
               const updatedAccount = {
                 ...account,
                 username: data.username,
                 avatar_url: data.avatar_url
               };
-              
-              // Update in context
               addAccount(updatedAccount);
-              
               return updatedAccount;
             }
             return account;
@@ -78,14 +65,12 @@ const AccountSwitcherModal = ({ visible, onClose, loadUserProfile }) => {
           }
         })
       );
-      
       setRefreshedAccounts(refreshed);
     } catch (error) {
       console.error("Error refreshing accounts:", error);
     }
   };
 
-  // Use refreshed accounts if available, otherwise use the filtered accounts from context
   const displayAccounts = refreshedAccounts.length > 0 ? refreshedAccounts : 
     Object.values(accounts.reduce((acc, account) => {
       acc[account.id] = account;
@@ -102,7 +87,6 @@ const AccountSwitcherModal = ({ visible, onClose, loadUserProfile }) => {
       <View style={styles.modalContainer}>
         <View style={styles.modalContent}>
           <Text style={styles.modalTitle}>Switch Account</Text>
-          
           {displayAccounts.map((account, index) => (
             <TouchableOpacity 
               key={index}
@@ -110,106 +94,48 @@ const AccountSwitcherModal = ({ visible, onClose, loadUserProfile }) => {
                 styles.accountItem, 
                 currentUser === account.id && styles.currentAccountItem
               ]}
-              onPress={async () => {  // Make sure this is an async function
+              onPress={async () => {
                 try {
-                  // Only switch if it's not the current account
                   if (currentUser !== account.id) {
-                    onClose(); // Close modal first
-                    
-                    // Try to sign in with the stored credentials
+                    onClose();
                     const { data, error } = await supabase.auth.signInWithPassword({
                       email: account.email,
-                      password: account.stored_password || '' // This will likely fail without password
+                      password: account.stored_password || ''
                     });
-                    
                     if (error) {
-                      // If direct sign-in fails, try session refresh if available
                       if (account.session_token) {
                         const { data: sessionData, error: sessionError } = await supabase.auth.refreshSession({
                           refresh_token: account.session_token
                         });
-                        
                         if (sessionError) {
-                          // If session refresh fails, navigate to login
                           Alert.alert(
                             "Session Expired", 
                             "Please log in again to access this account.",
-                            [
-                              { 
-                                text: "OK", 
-                                onPress: () => navigation.navigate('Login', { email: account.email })
-                              }
-                            ]
+                            [{ text: "OK", onPress: () => navigation.navigate('Login', { email: account.email }) }]
                           );
                           return;
                         }
-                        
-                        // If session refresh worked, force reload the profile
                         await loadUserProfile();
-                        
-                        // Navigate to Main to refresh the UI
-                        // In the AccountSwitcherModal component, update both navigation reset calls
-                        
-                        // Around line 130-140, change this:
-                        navigation.reset({
-                          index: 0,
-                          routes: [{ name: 'Main' }],
-                        });
-                        
-                        // To this:
                         navigation.reset({
                           index: 0,
                           routes: [{ name: 'MainApp' }],
                         });
                         return;
                       } else {
-                        // No session token, navigate to login
                         Alert.alert(
                           "Login Required", 
                           "Please log in to access this account.",
-                          [
-                            { 
-                              text: "OK", 
-                              onPress: () => navigation.navigate('Login', { email: account.email })
-                            }
-                          ]
+                          [{ text: "OK", onPress: () => navigation.navigate('Login', { email: account.email }) }]
                         );
                         return;
                       }
                     }
-                    
-                    // If direct sign-in worked, force reload the profile
                     await loadUserProfile();
-                    
-                    // Navigate to Main to refresh the UI
-                    // In the AccountSwitcherModal component, update both navigation reset calls
-                    
-                    // Change this:
-                    navigation.reset({
-                      index: 0,
-                      routes: [{ name: 'Main' }],
-                    });
-                    
-                    // To this:
                     navigation.reset({
                       index: 0,
                       routes: [{ name: 'MainApp' }],
                     });
-                    
-                    // Second instance around line 156
-                    // Change this:
-                    navigation.reset({
-                      index: 0,
-                      routes: [{ name: 'Main' }],
-                    });
-                    
-                    // To this:
-                    navigation.reset({
-                      index: 0,
-                      routes: [{ name: 'Profile' }],
-                    });
                   } else {
-                    // Just close the modal if it's the current account
                     onClose();
                   }
                 } catch (error) {
@@ -231,7 +157,6 @@ const AccountSwitcherModal = ({ visible, onClose, loadUserProfile }) => {
               )}
             </TouchableOpacity>
           ))}
-
           <TouchableOpacity 
             style={styles.addAccountButton}
             onPress={() => {
@@ -242,7 +167,6 @@ const AccountSwitcherModal = ({ visible, onClose, loadUserProfile }) => {
             <Ionicons name="add-circle-outline" size={24} color="#ff00ff" />
             <Text style={styles.addAccountText}>Add Account</Text>
           </TouchableOpacity>
-
           <TouchableOpacity 
             style={styles.closeButton}
             onPress={onClose}
@@ -250,6 +174,95 @@ const AccountSwitcherModal = ({ visible, onClose, loadUserProfile }) => {
             <Text style={styles.closeText}>Close</Text>
           </TouchableOpacity>
         </View>
+      </View>
+    </Modal>
+  );
+};
+
+// PostViewerModal component for Instagram-like scrolling
+const PostViewerModal = ({ visible, onClose, posts, initialIndex }) => {
+  const flatListRef = useRef(null);
+  const hasScrolledToIndex = useRef(false);
+  const windowHeight = Dimensions.get('window').height;
+
+  // Define getItemLayout to provide fixed height for each item
+  const getItemLayout = useCallback((data, index) => {
+    const itemHeight = windowHeight * 0.8; // Estimate 80% of screen height per post
+    return {
+      length: itemHeight,
+      offset: itemHeight * index,
+      index,
+    };
+  }, [windowHeight]);
+
+  useEffect(() => {
+    if (visible && flatListRef.current && initialIndex >= 0 && !hasScrolledToIndex.current) {
+      console.log('PostViewerModal opened with initialIndex:', initialIndex);
+      hasScrolledToIndex.current = true;
+      const timer = setTimeout(() => {
+        flatListRef.current.scrollToIndex({ index: initialIndex, animated: false });
+      }, 300); // Increased delay to ensure items are rendered
+
+      return () => clearTimeout(timer);
+    }
+  }, [visible, initialIndex]);
+
+  useEffect(() => {
+    if (!visible) {
+      hasScrolledToIndex.current = false;
+    }
+  }, [visible]);
+
+  const onScrollToIndexFailed = (info) => {
+    console.log('Scroll to index failed:', info);
+    const wait = new Promise(resolve => setTimeout(resolve, 500));
+    wait.then(() => {
+      flatListRef.current?.scrollToIndex({ index: info.index, animated: false });
+    });
+  };
+
+  const renderItem = useMemo(() => ({ item }) => (
+    <View style={[styles.postViewerItem, { height: windowHeight * 0.8 }]}>
+      <PostItem post={item} />
+    </View>
+  ), [windowHeight]);
+
+  const onScroll = (event) => {
+    const offsetY = event.nativeEvent.contentOffset.y;
+    console.log('Scrolled to offsetY:', offsetY);
+    if (offsetY <= 0) {
+      console.log('Reached the top of the list');
+    }
+  };
+
+  return (
+    <Modal
+      visible={visible}
+      transparent={false}
+      animationType="fade"
+      onRequestClose={onClose}
+    >
+      <View style={styles.postViewerContainer}>
+        <TouchableOpacity style={styles.backButton} onPress={onClose}>
+          <Ionicons name="arrow-back" size={30} color="#fff" />
+        </TouchableOpacity>
+        <FlatList
+          ref={flatListRef}
+          data={posts}
+          keyExtractor={(item) => item.id.toString()}
+          renderItem={renderItem}
+          getItemLayout={getItemLayout}
+          initialScrollIndex={initialIndex}
+          showsVerticalScrollIndicator={false}
+          windowSize={3} // Reduced to improve performance
+          maxToRenderPerBatch={2}
+          initialNumToRender={2}
+          onScrollToIndexFailed={onScrollToIndexFailed}
+          onScroll={onScroll}
+          snapToAlignment="start"
+          snapToInterval={windowHeight * 0.8}
+          decelerationRate="fast"
+        />
       </View>
     </Modal>
   );
@@ -269,38 +282,215 @@ const ProfileScreen = () => {
   const [activeTab, setActiveTab] = useState('Post');
   const [shorts, setShorts] = useState([]);
   const [posts, setPosts] = useState([]);
-  const [viewMode, setViewMode] = useState('grid'); // 'grid' or 'full'
-  const [selectedPost, setSelectedPost] = useState(null);
-  
-  const handlePostPress = (post) => {
-    setSelectedPost(post);
-    setViewMode('full');
+  const [isPostViewerVisible, setPostViewerVisible] = useState(false);
+  const [initialPostIndex, setInitialPostIndex] = useState(0);
+  const [loading, setLoading] = useState(false);
+  const [showFollowersModal, setShowFollowersModal] = useState(false);
+  const [showFollowingModal, setShowFollowingModal] = useState(false);
+  const [followers, setFollowers] = useState([]);
+  const [following, setFollowing] = useState([]);
+  const [loadingConnections, setLoadingConnections] = useState(false);
+  const navigation = useNavigation();
+
+  const memoizedPosts = useMemo(() => posts, [posts]);
+  const memoizedShorts = useMemo(() => shorts, [shorts]);
+
+  const handlePostPress = (index) => {
+    console.log('Post pressed at index:', index);
+    setInitialPostIndex(index);
+    setPostViewerVisible(true);
   };
 
-  const handleBackToGrid = () => {
-    setViewMode('grid');
-    setSelectedPost(null);
-  };
+  const renderGridItem = ({ item, index }) => {
+    if (item.type === 'text' || !item.media_url) {
+      return (
+        <TouchableOpacity 
+          style={[styles.gridItem, styles.textGridItem]} 
+          onPress={() => handlePostPress(index)}
+        >
+          <View style={styles.textPostContent}>
+            <Text style={styles.gridTextContent} numberOfLines={4}>
+              {item.caption || item.content}
+            </Text>
+            <View style={styles.gridItemFooter}>
+              <View style={styles.gridItemStats}>
+                <Ionicons name="heart" size={14} color="#ff00ff" />
+                <Text style={styles.gridItemStatsText}>{item.likes?.[0]?.count || 0}</Text>
+                <Ionicons name="chatbubble" size={14} color="#ff00ff" style={{ marginLeft: 8 }} />
+                <Text style={styles.gridItemStatsText}>{item.comments?.[0]?.count || 0}</Text>
+              </View>
+            </View>
+          </View>
+        </TouchableOpacity>
+      );
+    }
 
-  const renderGridItem = ({ item }) => (
-    <TouchableOpacity 
-      style={styles.gridItem} 
-      onPress={() => handlePostPress(item)}
-    >
-      <Image
-        source={{ uri: item.media_url || 'https://via.placeholder.com/300' }}
-        style={styles.gridImage}
-        resizeMode="cover"
-      />
-      {item.type === 'video' && (
-        <View style={styles.videoIndicator}>
-          <Ionicons name="play-circle" size={24} color="#fff" />
+    return (
+      <TouchableOpacity 
+        style={styles.gridItem} 
+        onPress={() => handlePostPress(index)}
+      >
+        <Image
+          source={{ uri: item.media_url || 'https://via.placeholder.com/300' }}
+          style={styles.gridImage}
+          resizeMode="cover"
+        />
+        {item.type === 'video' && (
+          <View style={styles.videoIndicator}>
+            <Ionicons name="play-circle" size={24} color="#fff" />
+          </View>
+        )}
+        <View style={styles.gridItemOverlay}>
+          <View style={styles.gridItemStats}>
+            <Ionicons name="heart" size={14} color="#fff" />
+            <Text style={styles.gridItemStatsText}>{item.likes?.[0]?.count || 0}</Text>
+            <Ionicons name="chatbubble" size={14} color="#fff" style={{ marginLeft: 8 }} />
+            <Text style={styles.gridItemStatsText}>{item.comments?.[0]?.count || 0}</Text>
+          </View>
         </View>
-      )}
-    </TouchableOpacity>
+      </TouchableOpacity>
+    );
+  };
+
+  const renderHeader = () => (
+    <>
+      <View style={styles.header}>
+        <TouchableOpacity onPress={() => setSidebarVisible(true)}>
+          <Ionicons name="menu" size={24} color="#ff00ff" />
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setAccountSwitcherVisible(true)}>
+          <Ionicons name="add-circle-outline" size={24} color="#ff00ff" />
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.profileSection}>
+        <View style={styles.coverPhotoContainer}>
+          <Image
+            style={styles.coverPhoto}
+            source={
+              userProfile?.cover_url
+                ? { uri: userProfile.cover_url, cache: 'reload' }
+                : require('../../assets/default-cover.png')
+            }
+            onLoadStart={() => console.log('Cover photo loading started')}
+            onLoadEnd={() => console.log('Cover photo loading ended')}
+            onError={(e) => console.log('Cover photo error:', e.nativeEvent.error)}
+          />
+        </View>
+        
+        <Image
+          style={styles.profileImage}
+          source={
+            userProfile?.avatar_url
+              ? { uri: userProfile.avatar_url, cache: 'reload' }
+              : require('../../assets/default-avatar.png')
+          }
+          onLoadStart={() => console.log('Avatar loading started')}
+          onLoadEnd={() => console.log('Avatar loading ended')}
+          onError={(e) => console.log('Avatar error:', e.nativeEvent.error)}
+        />
+        
+        <Text style={styles.name}>{userProfile?.full_name || 'No name set'}</Text>
+        <Text style={styles.username}>@{userProfile?.username || 'username'}</Text>
+        <LinearGradient
+          colors={['#ff00ff', '#00ff00']}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={styles.rankBadge}
+        >
+          <Ionicons name="trophy-outline" size={16} color="#FFD700" />
+          <Text style={styles.rankNumber}>
+            {userProfile?.rank 
+              ? `Rank #${userProfile.rank} ${userProfile.rank === 1 ? '(First Member!)' : ''}`
+              : 'Rank not assigned'}
+          </Text>
+        </LinearGradient>
+        {userProfile?.bio && (
+          <View style={styles.bioContainer}>
+            <Text style={styles.bioText}>
+              {userProfile.bio.length > 50 && !showFullBio
+                ? userProfile.bio.substring(0, 50) + '...'
+                : userProfile.bio}
+              {userProfile.bio.length > 50 && !showFullBio && (
+                <Text 
+                  style={styles.moreText}
+                  onPress={() => setShowFullBio(true)}
+                > more</Text>
+              )}
+            </Text>
+          </View>
+        )}
+        
+        <TouchableOpacity
+          style={styles.editButton}
+          onPress={() => navigation.navigate('EditProfile')}
+        >
+          <LinearGradient
+            colors={['#ff00ff', '#9400d3']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 0 }}
+            style={{ borderRadius: 25 }}
+          >
+            <Text style={styles.editButtonText}>EDIT PROFILE</Text>
+          </LinearGradient>
+        </TouchableOpacity>
+
+        <View style={styles.statsContainer}>
+          <TouchableOpacity style={styles.stat}>
+            <Text style={styles.statNumber}>{postsCount}</Text>
+            <Text style={styles.statLabel}>Posts</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.stat}>
+            <Text style={styles.statNumber}>{shortsCount}</Text>
+            <Text style={styles.statLabel}>Shorts</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.stat}
+            onPress={fetchFollowers}
+          >
+            <Text style={styles.statNumber}>{followersCount}</Text>
+            <Text style={styles.statLabel}>Followers</Text>
+          </TouchableOpacity>
+          <TouchableOpacity 
+            style={styles.stat}
+            onPress={fetchFollowing}
+          >
+            <Text style={styles.statNumber}>{followingCount}</Text>
+            <Text style={styles.statLabel}>Following</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={styles.tabsContainer}>
+        <TouchableOpacity 
+          style={[styles.tabButton, activeTab === 'Post' && styles.activeTab]}
+          onPress={() => {
+            setActiveTab('Post');
+            fetchUserContent();
+          }}
+        >
+          <Text style={[styles.tabButtonText, activeTab === 'Post' && styles.activeTabText]}>Posts</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.tabButton, activeTab === 'Short' && styles.activeTab]}
+          onPress={() => {
+            setActiveTab('Short');
+            fetchUserContent();
+          }}
+        >
+          <Text style={[styles.tabButtonText, activeTab === 'Short' && styles.activeTabText]}>Shorts</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.tabButton, activeTab === 'Details' && styles.activeTab]}
+          onPress={() => setActiveTab('Details')}
+        >
+          <Text style={[styles.tabButtonText, activeTab === 'Details' && styles.activeTabText]}>Details</Text>
+        </TouchableOpacity>
+      </View>
+    </>
   );
 
-  const renderPostContent = () => {
+  const renderContent = () => {
     if (loading) {
       return (
         <View style={styles.loadingContainer}>
@@ -309,42 +499,46 @@ const ProfileScreen = () => {
       );
     }
 
-    if (viewMode === 'grid') {
+    if (activeTab === 'Details') {
       return (
-        <FlatList
-          data={activeTab === 'Post' ? posts : shorts}
-          renderItem={renderGridItem}
-          numColumns={3}
-          keyExtractor={item => item.id.toString()}
-          columnWrapperStyle={styles.gridRow}
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.gridContainer}
-          onRefresh={fetchUserContent}
-          refreshing={loading}
-          ListEmptyComponent={() => (
-            <View style={styles.emptyContainer}>
-              <Text style={styles.emptyText}>
-                {activeTab === 'Post' ? 'No posts yet' : 'No shorts yet'}
-              </Text>
-            </View>
-          )}
-        />
-      );
-    } else if (viewMode === 'full' && selectedPost) {
-      return (
-        <View style={styles.fullPostContainer}>
-          <TouchableOpacity 
-            style={styles.backButton} 
-            onPress={handleBackToGrid}
-          >
-            <Ionicons name="arrow-back" size={24} color="#fff" />
-          </TouchableOpacity>
-          <PostItem post={selectedPost} />
+        <View style={styles.detailsContainer}>
+          <Text style={styles.detailsText}>Details tab content coming soon!</Text>
         </View>
       );
     }
-    return null;
+
+    const data = activeTab === 'Post' ? memoizedPosts : memoizedShorts;
+    return data.length > 0 ? (
+      <FlatList
+        data={data}
+        renderItem={renderGridItem}
+        numColumns={3}
+        keyExtractor={item => item.id.toString()}
+        columnWrapperStyle={styles.gridRow}
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={styles.gridContainer}
+        scrollEnabled={false}
+      />
+    ) : (
+      <View style={styles.emptyContainer}>
+        <Text style={styles.emptyText}>
+          {activeTab === 'Post' ? 'No posts yet' : 'No shorts yet'}
+        </Text>
+      </View>
+    );
   };
+
+  useFocusEffect(
+    React.useCallback(() => {
+      loadUserProfile();
+      fetchFollowersCount();
+      fetchFollowingCount();
+      fetchPostsCount();
+      fetchShortsCount();
+      fetchUserContent();
+    }, [activeTab])
+  );
+
   const fetchShortsCount = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
@@ -354,7 +548,7 @@ const ProfileScreen = () => {
         .from('posts')
         .select('*', { count: 'exact' })
         .eq('user_id', user.id)
-        .eq('type', 'short');
+        .eq('type', 'video');
 
       if (error) {
         console.error('Error fetching shorts count:', error);
@@ -365,44 +559,6 @@ const ProfileScreen = () => {
       console.error('Error fetching shorts count:', error);
     }
   };
-  const [loading, setLoading] = useState(false);
-  const [showFollowersModal, setShowFollowersModal] = useState(false);
-  const [showFollowingModal, setShowFollowingModal] = useState(false);
-  const [followers, setFollowers] = useState([]);
-  const [following, setFollowing] = useState([]);
-  const [loadingConnections, setLoadingConnections] = useState(false);
-  const navigation = useNavigation();
-
-  useFocusEffect(
-    React.useCallback(() => {
-      const loadProfile = async () => {
-        try {
-          const { data: { user } } = await supabase.auth.getUser();
-          if (user) {
-            const { data, error } = await supabase
-              .from('profiles')
-              .select('*')
-              .eq('id', user.id)
-              .single();
-      
-            if (data) {
-              console.log('Raw Profile Data:', data);
-              setUserProfile(data);
-            }
-          }
-        } catch (error) {
-          console.error('Error loading profile:', error);
-        }
-      };
-      
-      loadProfile();
-      fetchFollowersCount();
-      fetchFollowingCount();
-      fetchPostsCount();
-      fetchShortsCount();
-      fetchUserContent();
-    }, [activeTab])
-  );
 
   const fetchPostsCount = async () => {
     try {
@@ -431,29 +587,44 @@ const ProfileScreen = () => {
       if (!user) return;
 
       if (activeTab === 'Post') {
-        // Fetch all posts (text and image types)
         const { data, error } = await supabase
           .from('posts')
-          .select('*')
+          .select(`
+            *,
+            profiles:user_id (*),
+            likes:post_likes (count),
+            comments:post_comments (count),
+            user_likes:post_likes (user_id)
+          `)
           .eq('user_id', user.id)
-          .in('type', ['text', 'image'])
           .order('created_at', { ascending: false });
 
         if (error) throw error;
-        console.log('Fetched posts:', data);
-        setPosts(data || []);
+        const postsWithLikeStatus = data.map(post => ({
+          ...post,
+          is_liked: post.user_likes?.some(like => like.user_id === user.id) || false
+        }));
+        setPosts(postsWithLikeStatus || []);
       } else if (activeTab === 'Short') {
-        // Fetch video posts (shorts)
         const { data, error } = await supabase
           .from('posts')
-          .select('*')
+          .select(`
+            *,
+            profiles:user_id (*),
+            likes:post_likes (count),
+            comments:post_comments (count),
+            user_likes:post_likes (user_id)
+          `)
           .eq('user_id', user.id)
           .eq('type', 'video')
           .order('created_at', { ascending: false });
 
         if (error) throw error;
-        console.log('Fetched shorts:', data);
-        setShorts(data || []);
+        const shortsWithLikeStatus = data.map(post => ({
+          ...post,
+          is_liked: post.user_likes?.some(like => like.user_id === user.id) || false
+        }));
+        setShorts(shortsWithLikeStatus || []);
       }
     } catch (error) {
       console.error('Error fetching user content:', error);
@@ -462,25 +633,23 @@ const ProfileScreen = () => {
     }
   };
 
-  // Remove everything between useFocusEffect and loadUserProfile
-  // Delete the entire standalone block that starts with:
-  // if (currentUser !== account.id) {
-  // and ends with:
-  // } catch (error) {
-  // ...
-  // });
-
   const loadUserProfile = async () => {
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) {
+        console.log('No user found');
+        return;
+      }
 
-      // First get the old profile data to compare
-      const { data: oldData } = await supabase
+      const { data: oldData, error: oldError } = await supabase
         .from('profiles')
         .select('avatar_url, cover_url')
         .eq('id', user.id)
         .single();
+
+      if (oldError) {
+        console.error('Error fetching old profile data:', oldError);
+      }
 
       const { data: newData, error } = await supabase
         .from('profiles')
@@ -491,57 +660,71 @@ const ProfileScreen = () => {
       if (error) {
         console.error('Error loading user profile:', error);
         setUserProfile(null);
-      } else {
-        // Remove old files if they're different from new ones
-        if (oldData?.avatar_url && oldData.avatar_url !== newData.avatar_url) {
-          const oldAvatarPath = oldData.avatar_url.includes('/media/') 
-            ? oldData.avatar_url.split('/media/')[1] 
-            : oldData.avatar_url;
-            
-          console.log('Attempting to remove old avatar:', oldAvatarPath);
-          const { error: removeError } = await supabase.storage
-            .from('media')
-            .remove([oldAvatarPath]);
-            
-          if (removeError) {
-            console.log('Error removing old avatar:', removeError.message);
-          } else {
-            console.log('Successfully removed old avatar');
-          }
-        }
-
-        if (oldData?.cover_url && oldData.cover_url !== newData.cover_url) {
-          const oldCoverPath = oldData.cover_url.includes('/media/') 
-            ? oldData.cover_url.split('/media/')[1] 
-            : oldData.cover_url;
-            
-          console.log('Attempting to remove old cover:', oldCoverPath);
-          const { error: removeError } = await supabase.storage
-            .from('media')
-            .remove([oldCoverPath]);
-            
-          if (removeError) {
-            console.log('Error removing old cover:', removeError.message);
-          } else {
-            console.log('Successfully removed old cover');
-          }
-        }
-
-        // Get direct URLs from Supabase storage
-        const avatarUrl = newData.avatar_url ? 
-          supabase.storage.from('media').getPublicUrl(newData.avatar_url).data.publicUrl : 
-          null;
-        
-        const coverUrl = newData.cover_url ? 
-          supabase.storage.from('media').getPublicUrl(newData.cover_url).data.publicUrl : 
-          null;
-
-        setUserProfile({
-          ...newData,
-          avatar_url: avatarUrl,
-          cover_url: coverUrl
-        });
+        return;
       }
+
+      if (oldData?.avatar_url && oldData.avatar_url !== newData.avatar_url) {
+        let oldAvatarPath = oldData.avatar_url;
+        if (oldAvatarPath.includes('media/')) {
+          oldAvatarPath = oldAvatarPath.split('media/')[1];
+        }
+        const { error: removeError } = await supabase.storage
+          .from('media')
+          .remove([oldAvatarPath]);
+        if (removeError) {
+          console.log('Error removing old avatar:', removeError.message);
+        }
+      }
+
+      if (oldData?.cover_url && oldData.cover_url !== newData.cover_url) {
+        let oldCoverPath = oldData.cover_url;
+        if (oldCoverPath.includes('media/')) {
+          oldCoverPath = oldCoverPath.split('media/')[1];
+        }
+        const { error: removeError } = await supabase.storage
+          .from('media')
+          .remove([oldCoverPath]);
+        if (removeError) {
+          console.log('Error removing old cover:', removeError.message);
+        }
+      }
+
+      let avatarUrl = null;
+      let coverUrl = null;
+
+      if (newData.avatar_url) {
+        let avatarPath = newData.avatar_url;
+        if (avatarPath.includes('media/media/') || avatarPath.includes('storage/v1/object/public/media/')) {
+          const match = avatarPath.match(/([a-f0-9-]+\/avatar_[0-9]+\.jpg)/);
+          if (match && match[1]) {
+            avatarPath = match[1];
+          } else {
+            avatarPath = avatarPath.split('media/').pop();
+          }
+        }
+        avatarUrl = `https://lckhaysswueoyinhfzyz.supabase.co/storage/v1/object/public/media/${avatarPath}`;
+        console.log('Constructed Avatar URL:', avatarUrl);
+      }
+
+      if (newData.cover_url) {
+        let coverPath = newData.cover_url;
+        if (coverPath.includes('media/media/') || coverPath.includes('storage/v1/object/public/media/')) {
+          const match = coverPath.match(/([a-f0-9-]+\/cover_[0-9]+\.jpg)/);
+          if (match && match[1]) {
+            coverPath = match[1];
+          } else {
+            coverPath = coverPath.split('media/').pop();
+          }
+        }
+        coverUrl = `https://lckhaysswueoyinhfzyz.supabase.co/storage/v1/object/public/media/${coverPath}`;
+        console.log('Constructed Cover URL:', coverUrl);
+      }
+
+      setUserProfile({
+        ...newData,
+        avatar_url: avatarUrl,
+        cover_url: coverUrl
+      });
     } catch (error) {
       console.error('Error loading user profile:', error);
       setUserProfile(null);
@@ -588,37 +771,12 @@ const ProfileScreen = () => {
     }
   };
 
-  const renderBio = () => {
-    if (!userProfile?.bio) return null;
-    
-    const shouldTruncate = userProfile.bio.length > 50 && !showFullBio;
-    const displayBio = shouldTruncate 
-      ? userProfile.bio.substring(0, 50) + '...' 
-      : userProfile.bio;
-
-    return (
-      <View style={styles.bioContainer}>
-        <Text style={styles.bioText}>
-          {displayBio}
-          {shouldTruncate && (
-            <Text 
-              style={styles.moreText}
-              onPress={() => setShowFullBio(true)}
-            > more</Text>
-          )}
-        </Text>
-      </View>
-    );
-  };
-
-  // Add new functions to fetch followers and following details
   const fetchFollowers = async () => {
     try {
       setLoadingConnections(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Get all followers
       const { data, error } = await supabase
         .from('follows')
         .select(`
@@ -637,10 +795,8 @@ const ProfileScreen = () => {
         return;
       }
 
-      // Process the data to get clean user objects
       const followersList = data.map(item => {
         const profile = item.profiles;
-        // Fix avatar URL if needed
         let avatarUrl = null;
         if (profile.avatar_url) {
           let avatarPath = profile.avatar_url;
@@ -654,7 +810,6 @@ const ProfileScreen = () => {
           }
           avatarUrl = `https://lckhaysswueoyinhfzyz.supabase.co/storage/v1/object/public/media/${avatarPath}`;
         }
-        
         return {
           ...profile,
           avatar_url: avatarUrl
@@ -676,7 +831,6 @@ const ProfileScreen = () => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // Get all following
       const { data, error } = await supabase
         .from('follows')
         .select(`
@@ -695,10 +849,8 @@ const ProfileScreen = () => {
         return;
       }
 
-      // Process the data to get clean user objects
       const followingList = data.map(item => {
         const profile = item.profiles;
-        // Fix avatar URL if needed
         let avatarUrl = null;
         if (profile.avatar_url) {
           let avatarPath = profile.avatar_url;
@@ -712,7 +864,6 @@ const ProfileScreen = () => {
           }
           avatarUrl = `https://lckhaysswueoyinhfzyz.supabase.co/storage/v1/object/public/media/${avatarPath}`;
         }
-        
         return {
           ...profile,
           avatar_url: avatarUrl
@@ -728,7 +879,6 @@ const ProfileScreen = () => {
     }
   };
 
-  // Add ConnectionsModal component
   const ConnectionsModal = ({ visible, onClose, title, connections, isLoading }) => {
     return (
       <Modal
@@ -740,40 +890,40 @@ const ProfileScreen = () => {
         <View style={styles.modalContainer}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>{title}</Text>
-            
             {isLoading ? (
               <View style={styles.loadingContainer}>
                 <ActivityIndicator size="large" color="#ff00ff" />
               </View>
             ) : connections.length > 0 ? (
-              <ScrollView style={styles.connectionsList}>
-                {connections.map((connection, index) => (
+              <FlatList
+                data={connections}
+                keyExtractor={(item, index) => item.id ? item.id.toString() : index.toString()}
+                renderItem={({ item }) => (
                   <TouchableOpacity 
-                    key={index}
                     style={styles.connectionItem}
                     onPress={() => {
                       onClose();
-                      navigation.navigate('UserProfile', { userId: connection.id });
+                      navigation.navigate('UserProfile', { userId: item.id });
                     }}
                   >
                     <Image 
-                      source={{ uri: connection.avatar_url || 'https://via.placeholder.com/150' }}
+                      source={{ uri: item.avatar_url || 'https://via.placeholder.com/150' }}
                       style={styles.connectionAvatar}
                     />
                     <View style={styles.connectionInfo}>
-                      <Text style={styles.connectionName}>{connection.full_name || 'No name'}</Text>
-                      <Text style={styles.connectionUsername}>@{connection.username || 'username'}</Text>
+                      <Text style={styles.connectionName}>{item.full_name || 'No name'}</Text>
+                      <Text style={styles.connectionUsername}>@{item.username || 'username'}</Text>
                     </View>
                   </TouchableOpacity>
-                ))}
-              </ScrollView>
+                )}
+                style={styles.connectionsList}
+              />
             ) : (
               <View style={styles.emptyContainer}>
                 <Ionicons name="people-outline" size={50} color="#666" />
                 <Text style={styles.emptyText}>No {title.toLowerCase()} yet</Text>
               </View>
             )}
-
             <TouchableOpacity 
               style={styles.closeButton}
               onPress={onClose}
@@ -792,23 +942,11 @@ const ProfileScreen = () => {
         isVisible={isSidebarVisible} 
         onClose={() => setSidebarVisible(false)}
       />
-      
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => setSidebarVisible(true)}>
-          <Ionicons name="menu" size={24} color="#ff00ff" />
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => setAccountSwitcherVisible(true)}>
-          <Ionicons name="add-circle-outline" size={24} color="#ff00ff" />
-        </TouchableOpacity>
-      </View>
-
       <AccountSwitcherModal 
         visible={isAccountSwitcherVisible}
         onClose={() => setAccountSwitcherVisible(false)}
         loadUserProfile={loadUserProfile}
       />
-      
-      {/* Add the new modals */}
       <ConnectionsModal
         visible={showFollowersModal}
         onClose={() => setShowFollowersModal(false)}
@@ -816,7 +954,6 @@ const ProfileScreen = () => {
         connections={followers}
         isLoading={loadingConnections}
       />
-      
       <ConnectionsModal
         visible={showFollowingModal}
         onClose={() => setShowFollowingModal(false)}
@@ -824,212 +961,38 @@ const ProfileScreen = () => {
         connections={following}
         isLoading={loadingConnections}
       />
-      
-      <ScrollView>
-        <View style={styles.profileSection}>
-          {/* Cover Photo */}
-          <View style={styles.coverPhotoContainer}>
-            <Image
-              style={styles.coverPhoto}
-              source={userProfile?.cover_url 
-                ? { 
-                    uri: userProfile.cover_url,
-                    cache: 'reload'
-                  } 
-                : require('../../assets/default-cover.png')
-              }
-              onLoadStart={() => console.log('Cover photo loading started')}
-              onLoadEnd={() => console.log('Cover photo loading ended')}
-              onError={(e) => console.log('Cover photo error:', e.nativeEvent.error)}
-            />
-          </View>
-          
-          <Image
-            style={styles.profileImage}
-            source={userProfile?.avatar_url 
-              ? { 
-                  uri: userProfile.avatar_url,
-                  cache: 'reload'
-                } 
-              : require('../../assets/default-avatar.png')
-            }
-            onLoadStart={() => console.log('Avatar loading started')}
-            onLoadEnd={() => console.log('Avatar loading ended')}
-            onError={(e) => console.log('Avatar error:', e.nativeEvent.error)}
-          />
-          
-          <Text style={styles.name}>{userProfile?.full_name || 'No name set'}</Text>
-          <Text style={styles.username}>@{userProfile?.username || 'username'}</Text>
-          <LinearGradient
-            colors={['#ff00ff', '#00ff00']}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 0 }}
-            style={styles.rankBadge}
-          >
-            <Ionicons name="trophy-outline" size={16} color="#FFD700" />
-            <Text style={styles.rankNumber}>
-              {userProfile?.rank 
-                ? `Rank #${userProfile.rank} ${userProfile.rank === 1 ? '(First Member!)' : ''}`
-                : 'Rank not assigned'}
-            </Text>
-          </LinearGradient>
-          {renderBio()}
-          
-          <TouchableOpacity
-            style={styles.editButton}
-            onPress={() => navigation.navigate('EditProfile')}
-          >
-            <LinearGradient
-              colors={['#ff00ff', '#9400d3']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 0 }}
-              style={{ borderRadius: 25 }}
-            >
-              <Text style={styles.editButtonText}>EDIT PROFILE</Text>
-            </LinearGradient>
-          </TouchableOpacity>
-
-          <View style={styles.statsContainer}>
-            <TouchableOpacity style={styles.stat}>
-              <Text style={styles.statNumber}>{postsCount}</Text>
-              <Text style={styles.statLabel}>Posts</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.stat}>
-              <Text style={styles.statNumber}>{shorts.length}</Text>
-              <Text style={styles.statLabel}>Shorts</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.stat}
-              onPress={fetchFollowers}
-            >
-              <Text style={styles.statNumber}>{followersCount}</Text>
-              <Text style={styles.statLabel}>Followers</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={styles.stat}
-              onPress={fetchFollowing}
-            >
-              <Text style={styles.statNumber}>{followingCount}</Text>
-              <Text style={styles.statLabel}>Following</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {/* Rest of the profile content */}
-        
-
-        <View style={styles.tabsContainer}>
-          <TouchableOpacity 
-            style={[styles.tabButton, activeTab === 'Post' && styles.activeTab]}
-            onPress={() => setActiveTab('Post')}
-          >
-            <Text style={[styles.tabButtonText, activeTab === 'Post' && styles.activeTabText]}>Posts</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={[styles.tabButton, activeTab === 'Short' && styles.activeTab]}
-            onPress={() => setActiveTab('Short')}
-          >
-            <Text style={[styles.tabButtonText, activeTab === 'Short' && styles.activeTabText]}>Shorts</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={[styles.tabButton, activeTab === 'Details' && styles.activeTab]}
-            onPress={() => setActiveTab('Details')}
-          >
-            <Text style={[styles.tabButtonText, activeTab === 'Details' && styles.activeTabText]}>Details</Text>
-          </TouchableOpacity>
-        </View>
-
-        {/* Content based on active tab */}
-        {renderPostContent()}
-        
-        {/* Loading indicator */}
-        {loading && (
-          <View style={styles.loadingContainer}>
-            <ActivityIndicator size="large" color="#ff00ff" />
-          </View>
-        )}
-
-
-
-      </ScrollView>
+      <PostViewerModal
+        visible={isPostViewerVisible}
+        onClose={() => setPostViewerVisible(false)}
+        posts={activeTab === 'Post' ? memoizedPosts : memoizedShorts}
+        initialIndex={initialPostIndex}
+      />
+      <FlatList
+        data={[{ key: 'header' }, { key: 'content' }]}
+        keyExtractor={(item) => item.key}
+        renderItem={({ item }) => {
+          if (item.key === 'header') {
+            return renderHeader();
+          } else {
+            return renderContent();
+          }
+        }}
+        showsVerticalScrollIndicator={false}
+        onRefresh={() => {
+          loadUserProfile();
+          fetchFollowersCount();
+          fetchFollowingCount();
+          fetchPostsCount();
+          fetchShortsCount();
+          fetchUserContent();
+        }}
+        refreshing={loading}
+      />
     </View>
   );
 };
 
-// Add these styles to your StyleSheet
 const styles = StyleSheet.create({
-  gridContainer: {
-    padding: 4,
-  },
-  gridRow: {
-    justifyContent: 'flex-start',
-    padding: 4,
-  },
-  gridItem: {
-    flex: 1,
-    margin: 4,
-    maxWidth: '33%',
-    aspectRatio: 1,
-    borderRadius: 8,
-    overflow: 'hidden',
-  },
-  gridImage: {
-    width: '100%',
-    height: '100%',
-  },
-  gridItem: {
-    flex: 1/3,
-    aspectRatio: 1,
-    padding: 1,
-  },
-  gridImage: {
-    width: '100%',
-    height: '100%',
-    backgroundColor: '#2a2a2a',
-  },
-  videoIndicator: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    transform: [{ translateX: -12 }, { translateY: -12 }],
-    backgroundColor: 'rgba(0,0,0,0.3)',
-    borderRadius: 12,
-  },
-  gridContainer: {
-    paddingBottom: 20,
-  },
-  gridRow: {
-    justifyContent: 'flex-start',
-    padding: 2,
-  },
-  gridItem: {
-    flex: 1,
-    margin: 2,
-    aspectRatio: 1,
-    maxWidth: '33.33%',
-  },
-  gridImage: {
-    width: '100%',
-    height: '100%',
-    borderRadius: 8,
-  },
-  videoIndicator: {
-    position: 'absolute',
-    top: '50%',
-    left: '50%',
-    transform: [{ translateX: -12 }, { translateY: -12 }],
-  },
-  loader: {
-    marginTop: 20,
-  },
-  noContentText: {
-    textAlign: 'center',
-    marginTop: 20,
-    color: '#666',
-    fontSize: 16,
-  },
   container: {
     flex: 1,
     backgroundColor: '#000',
@@ -1043,7 +1006,21 @@ const styles = StyleSheet.create({
   profileSection: {
     alignItems: 'center',
     padding: 20,
-    paddingTop: 0, // Remove top padding to accommodate cover photo
+    paddingTop: 0,
+  },
+  coverPhotoContainer: {
+    width: '100%',
+    height: 200,
+    marginBottom: -50,
+    borderRadius: 15,
+    overflow: 'hidden',
+    backgroundColor: '#1a1a1a',
+  },
+  coverPhoto: {
+    width: '100%',
+    height: '100%',
+    resizeMode: 'cover',
+    backgroundColor: '#1a1a1a',
   },
   profileImage: {
     width: 100,
@@ -1051,6 +1028,8 @@ const styles = StyleSheet.create({
     borderRadius: 50,
     borderWidth: 3,
     borderColor: '#e3a6be',
+    backgroundColor: '#1a1a1a',
+    marginTop: 10,
   },
   name: {
     fontSize: 24,
@@ -1063,10 +1042,42 @@ const styles = StyleSheet.create({
     color: '#faf7f8',
     marginTop: 5,
   },
-  bio: {
-    fontSize: 14,
+  bioContainer: {
+    marginTop: 10,
+    paddingHorizontal: 20,
+    width: '100%',
+  },
+  bioText: {
     color: '#faf7f8',
-    marginTop: 5,
+    fontSize: 14,
+    lineHeight: 20,
+    textAlign: 'center',
+  },
+  moreText: {
+    color: '#ff00ff',
+    fontWeight: '600',
+  },
+  rankBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 12,
+    marginTop: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 4,
+    elevation: 5,
+  },
+  rankNumber: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+    marginLeft: 5,
+    textShadowColor: 'rgba(0, 0, 0, 0.3)',
+    textShadowOffset: { width: 1, height: 1 },
+    textShadowRadius: 2,
   },
   editButton: {
     marginTop: 15,
@@ -1113,8 +1124,8 @@ const styles = StyleSheet.create({
   },
   tabsContainer: {
     flexDirection: 'row',
-    justifyContent: 'space-around', // Changed from paddingHorizontal
-    paddingHorizontal: 40, // Added padding to keep tabs from edges
+    justifyContent: 'space-around',
+    paddingHorizontal: 40,
     marginTop: 20,
     borderBottomWidth: 1,
     borderBottomColor: '#1a1a1a',
@@ -1122,9 +1133,8 @@ const styles = StyleSheet.create({
   tabButton: {
     marginRight: 30,
     paddingBottom: 10,
-    flex: 1,  // Added to make buttons take equal space
+    flex: 1,
     alignItems: 'center',
-    
   },
   tabButtonText: {
     color: '#faf7f8',
@@ -1137,91 +1147,84 @@ const styles = StyleSheet.create({
   activeTabText: {
     color: '#1DA1F2',
   },
-  detailsSection: {
-    padding: 20,
+  gridContainer: {
+    padding: 4,
+    paddingBottom: 20,
   },
-  detailItem: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    marginBottom: 20,
+  gridRow: {
+    justifyContent: 'flex-start',
+    padding: 2,
   },
-  detailContent: {
-    marginLeft: 15,
+  gridItem: {
     flex: 1,
-  },
-  detailTitle: {
-    color: 'white',
-    fontSize: 16,
-    fontWeight: '600',
-    marginBottom: 5,
-  },
-  detailText: {
-    color: '#faf7f8',
-    fontSize: 14,
-  },
-  
-  bottomNav: null,
-  navItem: null,
-  navProfilePic: null,
-  coverPhotoContainer: {
-    width: '100%',
-    height: 200,
-    marginBottom: -50,
-    borderRadius: 15,
+    margin: 2,
+    aspectRatio: 1,
+    maxWidth: '33.33%',
+    borderRadius: 8,
     overflow: 'hidden',
-    backgroundColor: '#1a1a1a', // Add background color
   },
-  coverPhoto: {
+  gridImage: {
     width: '100%',
     height: '100%',
-    resizeMode: 'cover',
-    backgroundColor: '#1a1a1a', // Add this line
   },
-  profileImage: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    borderWidth: 3,
-    borderColor: '#e3a6be',
-    backgroundColor: '#1a1a1a', // Add background color
-    marginTop: 10, // Add margin to separate from cover photo
+  videoIndicator: {
+    position: 'absolute',
+    top: '50%',
+    left: '50%',
+    transform: [{ translateX: -12 }, { translateY: -12 }],
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    borderRadius: 12,
   },
-  bioContainer: {
-    marginTop: 10,
-    paddingHorizontal: 20,
-    width: '100%',
+  gridItemOverlay: {
+    position: 'absolute',
+    bottom: 0,
+    left: 0,
+    right: 0,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    padding: 4,
   },
-  bioText: {
-    color: '#faf7f8',
-    fontSize: 14,
-    lineHeight: 20,
-    textAlign: 'center',
-  },
-  moreText: {
-    color: '#ff00ff',
-    fontWeight: '600',
-  },
-  rankBadge: {
+  gridItemStats: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
-    marginTop: 8,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.25,
-    shadowRadius: 4,
-    elevation: 5,
   },
-  rankNumber: {
+  gridItemStatsText: {
     color: '#fff',
-    fontSize: 16,
-    fontWeight: 'bold',
-    marginLeft: 5,
-    textShadowColor: 'rgba(0, 0, 0, 0.3)',
-    textShadowOffset: { width: 1, height: 1 },
-    textShadowRadius: 2,
+    fontSize: 12,
+    marginLeft: 4,
+  },
+  textGridItem: {
+    backgroundColor: '#1a1a1a',
+    borderWidth: 1,
+    borderColor: '#333',
+  },
+  textPostContent: {
+    flex: 1,
+    padding: 8,
+    justifyContent: 'space-between',
+  },
+  gridTextContent: {
+    color: '#fff',
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  gridItemFooter: {
+    marginTop: 'auto',
+  },
+  postViewerContainer: {
+    flex: 1,
+    backgroundColor: '#000',
+  },
+  postViewerItem: {
+    width: '100%',
+    paddingVertical: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  backButton: {
+    position: 'absolute',
+    top: 40,
+    left: 20,
+    zIndex: 1,
   },
   modalContainer: {
     flex: 1,
@@ -1264,6 +1267,15 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '500',
   },
+  currentAccountItem: {
+    backgroundColor: 'rgba(255, 0, 255, 0.1)',
+    borderWidth: 1,
+    borderColor: '#ff00ff',
+    borderRadius: 10,
+  },
+  currentAccountBadge: {
+    marginLeft: 'auto',
+  },
   addAccountButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1290,119 +1302,60 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '500',
   },
-  // Add to your existing styles
-  currentAccountItem: {
-    backgroundColor: 'rgba(255, 0, 255, 0.1)',
+  connectionsList: {
+    maxHeight: 400,
+  },
+  connectionItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: '#333',
+  },
+  connectionAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 25,
+    marginRight: 15,
     borderWidth: 1,
     borderColor: '#ff00ff',
-    borderRadius: 10,
   },
-  currentAccountBadge: {
-    marginLeft: 'auto',
+  connectionInfo: {
+    flex: 1,
   },
-
-
-connectionsList: {
-  maxHeight: 400,
-},
-connectionItem: {
-  flexDirection: 'row',
-  alignItems: 'center',
-  padding: 15,
-  borderBottomWidth: 1,
-  borderBottomColor: '#333',
-},
-connectionAvatar: {
-  width: 50,
-  height: 50,
-  borderRadius: 25,
-  marginRight: 15,
-  borderWidth: 1,
-  borderColor: '#ff00ff',
-},
-connectionInfo: {
-  flex: 1,
-},
-connectionName: {
-  color: 'white',
-  fontSize: 16,
-  fontWeight: '500',
-},
-connectionUsername: {
-  color: '#999',
-  fontSize: 14,
-},
-emptyContainer: {
-  alignItems: 'center',
-  justifyContent: 'center',
-  padding: 40,
-  flex: 1,
-},
-emptyText: {
-  color: '#666',
-  fontSize: 16,
-  marginTop: 10,
-  textAlign: 'center',
-},
-loadingContainer: {
-  padding: 40,
-  alignItems: 'center',
-},
-detailsContainer: {
-  padding: 20,
-  backgroundColor: '#1a1a1a',
-  borderRadius: 10,
-  margin: 10,
-},
-sectionTitle: {
-  color: '#fff',
-  fontSize: 18,
-  fontWeight: 'bold',
-  marginBottom: 10,
-  marginTop: 20,
-},
-rankText: {
-  color: '#ff00ff',
-  fontSize: 16,
-  marginBottom: 20,
-},
-gridRow: {
-  justifyContent: 'flex-start',
-  padding: 2,
-},
-gridItem: {
-  flex: 1,
-  margin: 2,
-  aspectRatio: 1,
-  maxWidth: '33.33%',
-},
-gridImage: {
-  width: '100%',
-  height: '100%',
-  borderRadius: 8,
-}
+  connectionName: {
+    color: 'white',
+    fontSize: 16,
+    fontWeight: '500',
+  },
+  connectionUsername: {
+    color: '#999',
+    fontSize: 14,
+  },
+  emptyContainer: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 40,
+    flex: 1,
+  },
+  emptyText: {
+    color: '#666',
+    fontSize: 16,
+    marginTop: 10,
+    textAlign: 'center',
+  },
+  loadingContainer: {
+    padding: 40,
+    alignItems: 'center',
+  },
+  detailsContainer: {
+    padding: 20,
+    alignItems: 'center',
+  },
+  detailsText: {
+    color: '#fff',
+    fontSize: 16,
+  },
 });
+
 export default ProfileScreen;
-
-
-
-const fetchShortsCount = async () => {
-  try {
-    const { data: { user } } = await supabase.auth.getUser();
-    if (!user) return;
-
-    const { count, error } = await supabase
-      .from('posts')
-      .select('*', { count: 'exact' })
-      .eq('user_id', user.id)
-      .eq('type', 'short');
-
-    if (error) {
-      console.error('Error fetching shorts count:', error);
-    } else {
-      setShortsCount(count || 0);
-    }
-  } catch (error) {
-    console.error('Error fetching shorts count:', error);
-  }
-};

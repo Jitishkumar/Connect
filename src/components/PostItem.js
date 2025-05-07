@@ -32,6 +32,22 @@ const PostItem = ({ post, onOptionsPress }) => {
   const [likesCount, setLikesCount] = useState(post.likes?.[0]?.count || 0);
   const [commentsCount, setCommentsCount] = useState(post.comments?.[0]?.count || 0);
   const navigation = useNavigation();
+
+  // Add this function to safely get the avatar URL
+  const getAvatarUrl = () => {
+    if (!post?.profiles?.avatar_url) return 'https://via.placeholder.com/150';
+    
+    let avatarPath = post.profiles.avatar_url;
+    if (avatarPath.includes('media/media/') || avatarPath.includes('storage/v1/object/public/media/')) {
+      const match = avatarPath.match(/([a-f0-9-]+\/avatar_[0-9]+\.jpg)/);
+      if (match && match[1]) {
+        avatarPath = match[1];
+      } else {
+        avatarPath = avatarPath.split('media/').pop();
+      }
+    }
+    return `https://lckhaysswueoyinhfzyz.supabase.co/storage/v1/object/public/media/${avatarPath}`;
+  };
   const [loading, setLoading] = useState(true);
   const [playing, setPlaying] = useState(false);
   const [videoError, setVideoError] = useState(false);
@@ -50,7 +66,7 @@ const PostItem = ({ post, onOptionsPress }) => {
   const { activeVideoId, setActiveVideo, clearActiveVideo, isFullscreenMode, setFullscreen: setContextFullscreen } = useVideo();
 
   const handleProfilePress = () => {
-    navigation.navigate('UserProfile', { userId: post.user_id });
+    navigation.navigate('UserProfile', { userId: post?.user_id || post?.user?.id });
   };
 
   const handleVideoPress = () => {
@@ -284,18 +300,19 @@ const PostItem = ({ post, onOptionsPress }) => {
           <TouchableOpacity style={styles.headerLeft} onPress={handleProfilePress}>
             <LinearGradient colors={['#ff00ff', '#00ffff']} style={styles.avatarBorder}>
               <Image
-                source={{ uri: post.profiles.avatar_url || 'https://via.placeholder.com/150' }}
+                source={{ uri: getAvatarUrl() }}
                 style={styles.avatar}
+                defaultSource={require('../../assets/default-avatar.png')}
               />
             </LinearGradient>
             <View style={styles.headerInfo}>
-              <Text style={styles.username}>{post.profiles.username}</Text>
+              <Text style={styles.username}>{post?.profiles?.username || 'Anonymous User'}</Text>
               <Text style={styles.timestamp}>
-                {new Date(post.created_at).toLocaleDateString()}
+                {new Date(post?.created_at || Date.now()).toLocaleDateString()}
               </Text>
             </View>
           </TouchableOpacity>
-          {currentUser && currentUser.id === post.user_id && (
+          {currentUser && currentUser.id === post?.user_id && (
             <TouchableOpacity 
               style={styles.optionsButton} 
               onPress={() => {
