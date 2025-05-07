@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { View, Text, StyleSheet, Image, TouchableOpacity, Alert, Modal, ActivityIndicator, FlatList, Dimensions } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -179,95 +179,6 @@ const AccountSwitcherModal = ({ visible, onClose, loadUserProfile }) => {
   );
 };
 
-// PostViewerModal component for Instagram-like scrolling
-const PostViewerModal = ({ visible, onClose, posts, initialIndex }) => {
-  const flatListRef = useRef(null);
-  const hasScrolledToIndex = useRef(false);
-  const windowHeight = Dimensions.get('window').height;
-
-  // Define getItemLayout to provide fixed height for each item
-  const getItemLayout = useCallback((data, index) => {
-    const itemHeight = windowHeight * 0.8; // Estimate 80% of screen height per post
-    return {
-      length: itemHeight,
-      offset: itemHeight * index,
-      index,
-    };
-  }, [windowHeight]);
-
-  useEffect(() => {
-    if (visible && flatListRef.current && initialIndex >= 0 && !hasScrolledToIndex.current) {
-      console.log('PostViewerModal opened with initialIndex:', initialIndex);
-      hasScrolledToIndex.current = true;
-      const timer = setTimeout(() => {
-        flatListRef.current.scrollToIndex({ index: initialIndex, animated: false });
-      }, 300); // Increased delay to ensure items are rendered
-
-      return () => clearTimeout(timer);
-    }
-  }, [visible, initialIndex]);
-
-  useEffect(() => {
-    if (!visible) {
-      hasScrolledToIndex.current = false;
-    }
-  }, [visible]);
-
-  const onScrollToIndexFailed = (info) => {
-    console.log('Scroll to index failed:', info);
-    const wait = new Promise(resolve => setTimeout(resolve, 500));
-    wait.then(() => {
-      flatListRef.current?.scrollToIndex({ index: info.index, animated: false });
-    });
-  };
-
-  const renderItem = useMemo(() => ({ item }) => (
-    <View style={[styles.postViewerItem, { height: windowHeight * 0.8 }]}>
-      <PostItem post={item} />
-    </View>
-  ), [windowHeight]);
-
-  const onScroll = (event) => {
-    const offsetY = event.nativeEvent.contentOffset.y;
-    console.log('Scrolled to offsetY:', offsetY);
-    if (offsetY <= 0) {
-      console.log('Reached the top of the list');
-    }
-  };
-
-  return (
-    <Modal
-      visible={visible}
-      transparent={false}
-      animationType="fade"
-      onRequestClose={onClose}
-    >
-      <View style={styles.postViewerContainer}>
-        <TouchableOpacity style={styles.backButton} onPress={onClose}>
-          <Ionicons name="arrow-back" size={30} color="#fff" />
-        </TouchableOpacity>
-        <FlatList
-          ref={flatListRef}
-          data={posts}
-          keyExtractor={(item) => item.id.toString()}
-          renderItem={renderItem}
-          getItemLayout={getItemLayout}
-          initialScrollIndex={initialIndex}
-          showsVerticalScrollIndicator={false}
-          windowSize={3} // Reduced to improve performance
-          maxToRenderPerBatch={2}
-          initialNumToRender={2}
-          onScrollToIndexFailed={onScrollToIndexFailed}
-          onScroll={onScroll}
-          snapToAlignment="start"
-          snapToInterval={windowHeight * 0.8}
-          decelerationRate="fast"
-        />
-      </View>
-    </Modal>
-  );
-};
-
 // Main ProfileScreen component
 const ProfileScreen = () => {
   const { accounts, addAccount } = useAccounts();
@@ -282,8 +193,6 @@ const ProfileScreen = () => {
   const [activeTab, setActiveTab] = useState('Post');
   const [shorts, setShorts] = useState([]);
   const [posts, setPosts] = useState([]);
-  const [isPostViewerVisible, setPostViewerVisible] = useState(false);
-  const [initialPostIndex, setInitialPostIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [showFollowersModal, setShowFollowersModal] = useState(false);
   const [showFollowingModal, setShowFollowingModal] = useState(false);
@@ -297,8 +206,10 @@ const ProfileScreen = () => {
 
   const handlePostPress = (index) => {
     console.log('Post pressed at index:', index);
-    setInitialPostIndex(index);
-    setPostViewerVisible(true);
+    navigation.navigate('PostViewer', {
+      posts: activeTab === 'Post' ? memoizedPosts : memoizedShorts,
+      initialIndex: index,
+    });
   };
 
   const renderGridItem = ({ item, index }) => {
@@ -961,12 +872,6 @@ const ProfileScreen = () => {
         connections={following}
         isLoading={loadingConnections}
       />
-      <PostViewerModal
-        visible={isPostViewerVisible}
-        onClose={() => setPostViewerVisible(false)}
-        posts={activeTab === 'Post' ? memoizedPosts : memoizedShorts}
-        initialIndex={initialPostIndex}
-      />
       <FlatList
         data={[{ key: 'header' }, { key: 'content' }]}
         keyExtractor={(item) => item.key}
@@ -1209,22 +1114,6 @@ const styles = StyleSheet.create({
   },
   gridItemFooter: {
     marginTop: 'auto',
-  },
-  postViewerContainer: {
-    flex: 1,
-    backgroundColor: '#000',
-  },
-  postViewerItem: {
-    width: '100%',
-    paddingVertical: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  backButton: {
-    position: 'absolute',
-    top: 40,
-    left: 20,
-    zIndex: 1,
   },
   modalContainer: {
     flex: 1,
