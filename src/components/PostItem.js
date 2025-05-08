@@ -1,4 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
+
+
 import {
   View,
   Text,
@@ -9,7 +11,9 @@ import {
   ActivityIndicator,
   Modal,
   PanResponder,
-  ScrollView
+  ScrollView,
+  Linking,
+  TextInput
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
@@ -28,6 +32,22 @@ const PostItem = ({ post, onOptionsPress }) => {
   const [likesCount, setLikesCount] = useState(post.likes?.[0]?.count || 0);
   const [commentsCount, setCommentsCount] = useState(post.comments?.[0]?.count || 0);
   const navigation = useNavigation();
+
+  // Add this function to safely get the avatar URL
+  const getAvatarUrl = () => {
+    if (!post?.profiles?.avatar_url) return 'https://via.placeholder.com/150';
+    
+    let avatarPath = post.profiles.avatar_url;
+    if (avatarPath.includes('media/media/') || avatarPath.includes('storage/v1/object/public/media/')) {
+      const match = avatarPath.match(/([a-f0-9-]+\/avatar_[0-9]+\.jpg)/);
+      if (match && match[1]) {
+        avatarPath = match[1];
+      } else {
+        avatarPath = avatarPath.split('media/').pop();
+      }
+    }
+    return `https://lckhaysswueoyinhfzyz.supabase.co/storage/v1/object/public/media/${avatarPath}`;
+  };
   const [loading, setLoading] = useState(true);
   const [playing, setPlaying] = useState(false);
   const [videoError, setVideoError] = useState(false);
@@ -46,7 +66,7 @@ const PostItem = ({ post, onOptionsPress }) => {
   const { activeVideoId, setActiveVideo, clearActiveVideo, isFullscreenMode, setFullscreen: setContextFullscreen } = useVideo();
 
   const handleProfilePress = () => {
-    navigation.navigate('UserProfile', { userId: post.user_id });
+    navigation.navigate('UserProfile', { userId: post?.user_id || post?.user?.id });
   };
 
   const handleVideoPress = () => {
@@ -169,8 +189,19 @@ const PostItem = ({ post, onOptionsPress }) => {
 
   const [showLikesModal, setShowLikesModal] = useState(false);
   const [showCommentModal, setShowCommentModal] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editCaption, setEditCaption] = useState(post.caption || '');
   const [likesList, setLikesList] = useState([]);
   const [loadingLikes, setLoadingLikes] = useState(false);
+  const [currentUser, setCurrentUser] = useState(null);
+
+  useEffect(() => {
+    const getCurrentUser = async () => {
+      const { data: { user } } = await supabase.auth.getUser();
+      setCurrentUser(user);
+    };
+    getCurrentUser();
+  }, []);
 
   const handleLike = async () => {
     try {
@@ -208,6 +239,51 @@ const PostItem = ({ post, onOptionsPress }) => {
   const handleComment = () => {
     setShowCommentModal(true);
   };
+
+  const handleEdit = async () => {
+    try {
+      await PostsService.editPost(post.id, editCaption);
+      post.caption = editCaption;
+      setShowEditModal(false);
+      Alert.alert('Success', 'Post updated successfully');
+    } catch (error) {
+      console.error('Error updating post:', error);
+      Alert.alert('Error', 'Failed to update post');
+    }
+  };
+
+  const handleDelete = async () => {
+    Alert.alert(
+      'Delete Post',
+      'Are you sure you want to delete this post?',
+      [
+        {
+          text: 'Cancel',
+          style: 'cancel'
+        },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await PostsService.deletePost(post.id);
+              // Trigger parent component update
+              if (onOptionsPress) {
+                onOptionsPress({ type: 'delete', postId: post.id });
+              }
+              // Close any open modals
+              setShowLikesModal(false);
+              setShowCommentModal(false);
+              setShowEditModal(false);
+            } catch (error) {
+              console.error('Error deleting post:', error);
+              Alert.alert('Error', 'Failed to delete post');
+            }
+          }
+        }
+      ]
+    );
+  };
   
   const handleCloseCommentModal = () => {
     setShowCommentModal(false);
@@ -224,19 +300,33 @@ const PostItem = ({ post, onOptionsPress }) => {
           <TouchableOpacity style={styles.headerLeft} onPress={handleProfilePress}>
             <LinearGradient colors={['#ff00ff', '#00ffff']} style={styles.avatarBorder}>
               <Image
-                source={{ uri: post.profiles.avatar_url || 'https://via.placeholder.com/150' }}
+                source={{ uri: getAvatarUrl() }}
                 style={styles.avatar}
+                defaultSource={require('../../assets/default-avatar.png')}
               />
             </LinearGradient>
             <View style={styles.headerInfo}>
-              <Text style={styles.username}>{post.profiles.username}</Text>
+              <Text style={styles.username}>{post?.profiles?.username || 'Anonymous User'}</Text>
               <Text style={styles.timestamp}>
-                {new Date(post.created_at).toLocaleDateString()}
+                {new Date(post?.created_at || Date.now()).toLocaleDateString()}
               </Text>
             </View>
           </TouchableOpacity>
-          {onOptionsPress && (
-            <TouchableOpacity style={styles.optionsButton} onPress={() => onOptionsPress(post)}>
+          {currentUser && currentUser.id === post?.user_id && (
+            <TouchableOpacity 
+              style={styles.optionsButton} 
+              onPress={() => {
+                Alert.alert(
+                  'Post Options',
+                  'What would you like to do?',
+                  [
+                    { text: 'Edit Caption', onPress: () => setShowEditModal(true) },
+                    { text: 'Delete Post', onPress: handleDelete, style: 'destructive' },
+                    { text: 'Cancel', style: 'cancel' }
+                  ]
+                );
+              }}
+            >
               <Ionicons name="ellipsis-vertical" size={20} color="#fff" />
             </TouchableOpacity>
           )}
@@ -245,7 +335,18 @@ const PostItem = ({ post, onOptionsPress }) => {
         {/* Post Caption */}
         {post.caption && (
           <View style={styles.captionContainer}>
-            <Text style={styles.caption}>{post.caption}</Text>
+            <Text style={styles.caption}>
+              {post.caption.split(/(https?:\/\/[^\s]+)/g).map((part, index) => {
+                if (part.match(/^https?:\/\//)) {
+                  return (
+                    <TouchableOpacity key={index} onPress={() => Linking.openURL(part)}>
+                      <Text style={styles.link}>{part}</Text>
+                    </TouchableOpacity>
+                  );
+                }
+                return part;
+              })}
+            </Text>
           </View>
         )}
 
@@ -453,6 +554,41 @@ const PostItem = ({ post, onOptionsPress }) => {
         postId={post.id} 
       />
 
+      {/* Edit Caption Modal */}
+      <Modal
+        visible={showEditModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowEditModal(false)}
+      >
+        <View style={styles.modalContainer}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Edit Caption</Text>
+              <TouchableOpacity onPress={() => setShowEditModal(false)}>
+                <Ionicons name="close" size={24} color="#fff" />
+              </TouchableOpacity>
+            </View>
+            
+            <TextInput
+              style={styles.editInput}
+              value={editCaption}
+              onChangeText={setEditCaption}
+              multiline
+              placeholder="Write a caption..."
+              placeholderTextColor="#666"
+            />
+            
+            <TouchableOpacity 
+              style={styles.editButton}
+              onPress={handleEdit}
+            >
+              <Text style={styles.editButtonText}>Save Changes</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
       {/* Fullscreen Video */}
       {fullscreen && (
         <Modal
@@ -561,6 +697,28 @@ const PostItem = ({ post, onOptionsPress }) => {
 };
 
 const styles = StyleSheet.create({
+  editInput: {
+    backgroundColor: '#1a1a3a',
+    borderRadius: 10,
+    padding: 15,
+    color: '#fff',
+    fontSize: 16,
+    minHeight: 100,
+    textAlignVertical: 'top',
+    marginVertical: 15,
+  },
+  editButton: {
+    backgroundColor: '#ff00ff',
+    borderRadius: 25,
+    padding: 15,
+    alignItems: 'center',
+    marginTop: 10,
+  },
+  editButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
   modalContainer: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -584,6 +742,10 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: '#fff',
+  },
+  link: {
+    color: '#00ffff',
+    textDecorationLine: 'underline',
   },
   loadingIndicator: {
     marginTop: 20,

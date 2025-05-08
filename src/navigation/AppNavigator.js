@@ -19,7 +19,7 @@ import ConfessionScreen from '../screens/ConfessionScreen';
 import CreatePostScreen from '../screens/CreatePostScreen';
 import TrendingScreen from '../screens/TrendingScreen';
 import CommentScreen from '../screens/CommentScreen';
-
+import PostViewerScreen from '../screens/PostViewerScreen';
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
@@ -81,6 +81,7 @@ export const AppNavigator = () => {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Signup" component={SignupScreen} />
+      <Stack.Screen name="PostViewer" component={PostViewerScreen} options={{ headerShown: false }} />
       <Stack.Screen name="MainApp" component={TabNavigator} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="Search" component={SearchScreen} />
