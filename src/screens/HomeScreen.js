@@ -151,14 +151,16 @@ const HomeScreen = () => {
               <Ionicons name="search-outline" size={22} color="#fff" />
             </LinearGradient>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.iconButton}>
+          <TouchableOpacity 
+            style={styles.iconButton}
+            onPress={() => navigation.navigate('RandomCall')}
+          >
             <LinearGradient
               colors={['#ff66cc', '#ff3399']}
               style={styles.iconBackground}
             >
-              <Ionicons name="notifications-outline" size={22} color="#fff" />
+              <Ionicons name="videocam" size={22} color="#fff" />
             </LinearGradient>
-            <View style={styles.notificationBadge} />
           </TouchableOpacity>
         </View>
       </LinearGradient>
