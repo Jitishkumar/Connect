@@ -12,7 +12,7 @@ export default {
       backgroundColor: "#ffffff"
     },
     assetBundlePatterns: [
-      "**/*"
+      "./assets/*"
     ],
     ios: {
       supportsTablet: true,
@@ -48,7 +48,6 @@ export default {
       ]
     ],
     newArchEnabled: true,
-    entryPoint: "./index.js",
     extra: {
       oneSignalAppId: process.env.ONE_SIGNAL_APP_ID || "bd411f7d-9897-401c-9e0e-8f979b77fa93",
       eas: {

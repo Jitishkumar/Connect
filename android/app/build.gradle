@@ -82,26 +82,17 @@ def jscFlavor = 'org.webkit:android-jsc:+'
 
 android {
     ndkVersion rootProject.ext.ndkVersion
+
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    packagingOptions {
-        pickFirst '**/libc++_shared.so'
-    }
-
-    namespace 'com.flex.connect'
+    namespace 'com.connect.app'
     defaultConfig {
-        applicationId 'com.flex.connect'
+        applicationId 'com.connect.app'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
         versionName "1.0.0"
-        externalNativeBuild {
-            cmake {
-                cppFlags "-std=c++17"
-                arguments "-DANDROID_STL=c++_shared", "-DCMAKE_CXX_STANDARD=17", "-DCMAKE_CXX_STANDARD_REQUIRED=ON", "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
-            }
-        }
     }
     signingConfigs {
         debug {

@@ -7,6 +7,7 @@ import { VideoProvider } from './src/context/VideoContext';
 import { supabase } from './src/config/supabase';
 import OneSignal from 'react-native-onesignal';
 import Constants from 'expo-constants';
+import 'react-native-get-random-values';
 
 
 export default function App() {

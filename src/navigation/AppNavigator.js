@@ -21,6 +21,8 @@ import TrendingScreen from '../screens/TrendingScreen';
 import CommentScreen from '../screens/CommentScreen';
 import PostViewerScreen from '../screens/PostViewerScreen';
 import RandomCallScreen from '../screens/RandomCallScreen';
+import VideoCallScreen from '../screens/VideoCallScreen'; // Add this import
+
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
 
@@ -82,19 +84,20 @@ export const AppNavigator = () => {
     <Stack.Navigator screenOptions={{ headerShown: false }}>
       <Stack.Screen name="Login" component={LoginScreen} />
       <Stack.Screen name="Signup" component={SignupScreen} />
-      <Stack.Screen name="PostViewer" component={PostViewerScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="PostViewer" component={PostViewerScreen} />
       <Stack.Screen name="MainApp" component={TabNavigator} />
       <Stack.Screen name="EditProfile" component={EditProfileScreen} />
       <Stack.Screen name="Search" component={SearchScreen} />
       <Stack.Screen name="Confession" component={ConfessionScreen} />
       <Stack.Screen name="UserProfile" component={UserProfileScreen} />
       <Stack.Screen name="MessageScreen" component={MessageScreen} />
-      <Stack.Screen name="Stories" component={StoriesScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="AddAccount" component={AddAccountScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="CreatePost" component={CreatePostScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="Trending" component={TrendingScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="Comment" component={CommentScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="RandomCall" component={RandomCallScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Stories" component={StoriesScreen} />
+      <Stack.Screen name="AddAccount" component={AddAccountScreen} />
+      <Stack.Screen name="CreatePost" component={CreatePostScreen} />
+      <Stack.Screen name="Trending" component={TrendingScreen} />
+      <Stack.Screen name="Comment" component={CommentScreen} />
+      <Stack.Screen name="RandomCall" component={RandomCallScreen} />
+      <Stack.Screen name="VideoCall" component={VideoCallScreen} />
     </Stack.Navigator>
   );
 };

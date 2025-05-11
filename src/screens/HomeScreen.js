@@ -151,7 +151,7 @@ const HomeScreen = () => {
               <Ionicons name="search-outline" size={22} color="#fff" />
             </LinearGradient>
           </TouchableOpacity>
-          <TouchableOpacity 
+          <TouchableOpacity
             style={styles.iconButton}
             onPress={() => navigation.navigate('RandomCall')}
           >
