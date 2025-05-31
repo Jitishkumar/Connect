@@ -220,7 +220,7 @@ const ProfileScreen = () => {
               style={styles.coverPhoto}
               source={userProfile?.cover_url 
                 ? { uri: userProfile.cover_url } 
-                : require('../../assets/default-cover.png')}
+                : require('../../assets/defaultcover.png')}
             />
           </View>
           
@@ -228,7 +228,7 @@ const ProfileScreen = () => {
             style={styles.profileImage}
             source={userProfile?.avatar_url 
               ? { uri: userProfile.avatar_url } 
-              : require('../../assets/default-avatar.png')}
+              : require('../../assets/defaultavatar.png')}
           />
           <Text style={styles.name}>{userProfile?.full_name || 'No name set'}</Text>
           <Text style={styles.username}>@{userProfile?.username || 'username'}</Text>

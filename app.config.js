@@ -7,7 +7,7 @@ export default {
     icon: "./assets/icon.png",
     userInterfaceStyle: "light",
     splash: {
-      image: "./assets/splash-icon.png",
+      image: "./assets/splash_icon.png",
       resizeMode: "contain",
       backgroundColor: "#ffffff"
     },
@@ -50,6 +50,9 @@ export default {
     newArchEnabled: true,
     entryPoint: "./index.js",
     extra: {
+      eas: {
+        projectId: "55c501f1-50cc-4f7d-9b4d-9df48400367e"
+      },
       oneSignalAppId: process.env.ONE_SIGNAL_APP_ID || "bd411f7d-9897-401c-9e0e-8f979b77fa93"
     }
   }

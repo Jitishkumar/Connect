@@ -302,7 +302,7 @@ const PostItem = ({ post, onOptionsPress }) => {
               <Image
                 source={{ uri: getAvatarUrl() }}
                 style={styles.avatar}
-                defaultSource={require('../../assets/default-avatar.png')}
+                defaultSource={require('../../assets/defaultavatar.png')}
               />
             </LinearGradient>
             <View style={styles.headerInfo}>

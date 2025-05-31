@@ -1,4 +1,8 @@
 {
+    "java.project.explorer.showNonJavaResources": false,
+    "java.import.exclusions": [
+        "**/node_modules/**"
+    ],
     "terminal.integrated.cwd": "${workspaceFolder}",
     "terminal.integrated.defaultProfile.osx": "bash",
     "terminal.integrated.profiles.osx": {
@@ -6,5 +10,6 @@
             "path": "/bin/bash",
             "args": []
         }
-    }
+    },
+    "java.configuration.updateBuildConfiguration": "automatic"
 }

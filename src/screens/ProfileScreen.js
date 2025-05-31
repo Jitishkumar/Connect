@@ -281,7 +281,7 @@ const ProfileScreen = () => {
             source={
               userProfile?.cover_url
                 ? { uri: userProfile.cover_url, cache: 'reload' }
-                : require('../../assets/default-cover.png')
+                : require('../../assets/defaultcover.png')
             }
             onLoadStart={() => console.log('Cover photo loading started')}
             onLoadEnd={() => console.log('Cover photo loading ended')}
@@ -294,7 +294,7 @@ const ProfileScreen = () => {
           source={
             userProfile?.avatar_url
               ? { uri: userProfile.avatar_url, cache: 'reload' }
-              : require('../../assets/default-avatar.png')
+              : require('../../assets/defaultavatar.png')
           }
           onLoadStart={() => console.log('Avatar loading started')}
           onLoadEnd={() => console.log('Avatar loading ended')}

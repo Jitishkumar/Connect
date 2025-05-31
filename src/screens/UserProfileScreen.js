@@ -391,7 +391,7 @@ const UserProfileScreen = () => {
                 style={styles.coverPhoto}
                 source={userProfile?.cover_url 
                   ? { uri: userProfile.cover_url, cache: 'reload' } 
-                  : require('../../assets/default-cover.png')
+                  : require('../../assets/defaultcover.png')
                 }
                 onError={(e) => {
                   console.log('Cover photo error:', e.nativeEvent.error);
@@ -404,7 +404,7 @@ const UserProfileScreen = () => {
               style={styles.profileImage}
               source={userProfile?.avatar_url 
                 ? { uri: userProfile.avatar_url, cache: 'reload' } 
-                : require('../../assets/default-avatar.png')
+                : require('../../assets/defaultavatar.png')
               }
               onError={(e) => {
                 console.log('Avatar photo error:', e.nativeEvent.error);
@@ -728,6 +728,3 @@ const styles = StyleSheet.create({
 });
 
 export default UserProfileScreen;
-
-// DELETE EVERYTHING BELOW THIS LINE
-// Remove the second styles declaration and everything after it
